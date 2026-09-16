@@ -1,0 +1,8 @@
+{
+  "live-restore": {{ docker_live_restore | bool | lower }},
+  "log-driver": {{ docker_log_driver | to_json }},
+  "log-opts": {
+    "max-file": {{ docker_log_max_files | string | to_json }},
+    "max-size": {{ docker_log_max_size | string | to_json }}
+  }
+}

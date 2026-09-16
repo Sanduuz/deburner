@@ -1,0 +1,8 @@
+---
+# Standard burner provisioning, in dependency order. Keep optional features in
+# their own playbooks so running this file does not expose additional services.
+- name: Apply the hardening baseline
+  ansible.builtin.import_playbook: hardening.yml
+
+- name: Install Docker tooling
+  ansible.builtin.import_playbook: docker.yml

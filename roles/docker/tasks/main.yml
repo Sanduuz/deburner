@@ -1,0 +1,136 @@
+---
+- name: Validate Docker configuration
+  ansible.builtin.assert:
+    that:
+      - docker_group_users | type_debug == 'list'
+      - docker_log_driver in ['local', 'json-file']
+      - docker_log_max_size is match('^[1-9][0-9]*[kKmMgG]$')
+      - docker_log_max_files | int >= 1
+      - docker_log_max_files | int <= 100
+      - docker_apt_suite == 'trixie'
+      - docker_apt_key_fingerprint is match('^[A-F0-9]{40}$')
+    fail_msg: Review the Docker variables in local.yml; one or more values are invalid.
+
+- name: Reject root as a Docker group user
+  ansible.builtin.assert:
+    that:
+      - item != 'root'
+      - item is match('^[a-z_][a-z0-9_-]*[$]?$')
+    fail_msg: Docker group users must be valid non-root local account names.
+  loop: "{{ docker_group_users }}"
+
+- name: Look up requested Docker users
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ item }}"
+    fail_key: true
+  loop: "{{ docker_group_users }}"
+
+- name: Install Docker repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Remove packages that conflict with Docker CE
+  ansible.builtin.apt:
+    name:
+      - containerd
+      - docker-buildx
+      - docker-compose
+      - docker-doc
+      - docker.io
+      - podman-docker
+      - runc
+    state: absent
+
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download Docker's repository signing key
+  ansible.builtin.get_url:
+    url: "{{ docker_apt_key_url }}"
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read the Docker signing key fingerprint
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/gpg
+      - --batch
+      - --show-keys
+      - --with-colons
+      - /etc/apt/keyrings/docker.asc
+  register: docker_key_details
+  changed_when: false
+  failed_when: docker_apt_key_fingerprint not in docker_key_details.stdout
+
+- name: Configure Docker's official stable repository
+  ansible.builtin.template:
+    src: docker.sources.j2
+    dest: /etc/apt/sources.list.d/docker.sources
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install the latest stable Docker Engine
+  ansible.builtin.apt:
+    name:
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+    state: latest
+    update_cache: true
+
+- name: Create Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure the Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/bin/dockerd --validate --config-file %s
+  notify: Restart Docker
+
+- name: Grant explicitly requested users Docker socket access
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_group_users }}"
+
+- name: Enable and start Docker
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: true
+    state: started
+
+- name: Apply pending Docker configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Report group membership activation requirement
+  ansible.builtin.debug:
+    msg: >-
+      Log out and back in before using Docker without sudo. Docker group access is
+      root-equivalent and applies to every process in that login session.
+  when: docker_group_users | length > 0

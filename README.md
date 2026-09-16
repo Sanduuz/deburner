@@ -1,9 +1,10 @@
 # deburner
 
-Local Ansible playbooks for a disposable Debian CTF laptop. The first implemented
-category is basic hardening for **Debian 13 (trixie), amd64, systemd**, with a
-GNOME/Wayland desktop. Debian 14 will require an explicit review and version bump;
-the playbook refuses unsupported releases rather than following `stable` silently.
+Local Ansible playbooks for a disposable Debian CTF laptop. The project currently
+provides basic hardening and Docker tooling for **Debian 13 (trixie), amd64,
+systemd**, with a GNOME/Wayland desktop. Debian 14 will require an explicit review
+and version bump; the playbooks refuse unsupported releases rather than following
+`stable` silently.
 
 > [!WARNING]
 > This project is heavily AI-assisted and may contain mistakes, unsafe assumptions,
@@ -35,7 +36,7 @@ git clone https://github.com/sanduuz/deburner.git
 cd deburner
 cp local.yml.example local.yml
 # Edit local.yml for this event, then:
-ansible-playbook hardening.yml --ask-become-pass -e @local.yml
+ansible-playbook deburner.yml --ask-become-pass
 sudo reboot
 ```
 
@@ -44,23 +45,34 @@ The canonical repository is
 Ansible collections are required.
 
 Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
-All tasks target `localhost` and use privilege escalation. They are idempotent so
-you can rerun them during initial provisioning or to apply a deliberate
-configuration change, such as opening another port. Rerunning the playbooks is
-not a recovery process for a machine that may have been compromised. Review the
-repository before running it with root privileges. Keep `local.yml` private; it
-is ignored by Git. Nothing commits or pushes changes for you.
+`deburner.yml` runs the standard playbooks in dependency order: hardening first,
+then Docker. Future optional playbooks that expose services, such as screen
+sharing, will not be included. All tasks target `localhost` and use privilege
+escalation. They are idempotent so you can rerun them during initial provisioning
+or to apply a deliberate configuration change, such as opening another port.
+Rerunning the playbooks is not a recovery process for a machine that may have
+been compromised. Review the repository before running it with root privileges.
+Keep `local.yml` private; it is ignored by Git. Each playbook loads `local.yml`
+automatically, falling back to `local.yml.example` when it is absent. Nothing
+commits or pushes changes for you.
 
 For a preliminary review:
 
 ```sh
-ansible-playbook hardening.yml --syntax-check
-ansible-playbook hardening.yml --check --diff --ask-become-pass -e @local.yml
+ansible-playbook deburner.yml --syntax-check
+ansible-playbook deburner.yml --check --diff --ask-become-pass
 ```
 
 Check mode on a fresh machine may fail when a later task needs a package or
 directory that was only simulated earlier. It does not verify the live firewall,
 kernel, networking, or AppArmor behavior.
+
+The category playbooks remain directly runnable when you only need one part:
+
+```sh
+ansible-playbook hardening.yml --ask-become-pass
+ansible-playbook docker.yml --ask-become-pass
+```
 
 ## Configuration
 
@@ -105,6 +117,41 @@ mapping** in `local.yml`; Ansible replaces dictionaries by default. Removing a
 previously managed key does not restore its live value automatically. Restore it
 explicitly or reboot after removing it from the managed configuration.
 
+### Docker
+
+The Docker playbook configures Docker's official `stable` APT repository and
+installs its latest Docker Engine, CLI, containerd, Compose and Buildx packages.
+The repository is limited to Debian 13 (`trixie`) on `amd64` and is authenticated
+with a dedicated key under `/etc/apt/keyrings`; the playbook verifies the key's
+full fingerprint before APT uses it. It removes Debian's conflicting Docker,
+containerd and runc packages first, as required by
+[Docker's Debian installation guide](https://docs.docker.com/engine/install/debian/).
+Existing data under `/var/lib/docker` is not deleted during that package change.
+
+Versions are not pinned, so a later provisioning rerun can install a newer stable
+release. The offline Debian mirror will not contain these upstream Docker
+packages. Install Docker and pull any required images while online; preserving
+Docker packages and images for fully offline reinstallation is separate future
+work.
+
+By default, Docker commands require `sudo`. To use the Docker socket as your normal
+user, add the exact local account name to `local.yml` before running the playbook:
+
+```yaml
+docker_group_users: [your_username]
+```
+
+Log out and back in after the playbook changes group membership. Access to the
+Docker socket is root-equivalent: a user or process with that access can mount the
+host filesystem, start privileged containers, and take complete control of the
+machine. Only add trusted interactive users. The daemon listens on its local Unix
+socket; this playbook does not expose its API over TCP.
+
+The playbook owns `/etc/docker/daemon.json`. Its defaults use Docker's rotating
+`local` log driver with a 20 MB limit and five retained files per container, and
+enable live restore. Override the related `docker_*` variables only after checking
+that the installed daemon supports the chosen values.
+
 ## Modifications made
 
 | Area | Modification | Purpose / impact |
@@ -115,6 +162,8 @@ explicitly or reboot after removing it from the managed configuration.
 | Updates | Manage `/etc/apt/apt.conf.d/99deburner-updates` | Operator-controlled updates by default; optional security-only unattended upgrades; no automatic reboot |
 | Kernel | Manage `/etc/sysctl.d/90-deburner.conf` and apply it | Restrict kernel pointer/dmesg access; protect links, FIFOs and regular files in sticky directories; reject ICMP redirects; disable IPv4 redirect sending; enable SYN cookies |
 | Firewall | Manage `/etc/deburner/firewall.nft` and `deburner-firewall.service` | Drop unsolicited host input for IPv4/IPv6; allow loopback, established/related connections, ICMP, DHCP replies, and explicit port exceptions |
+| Docker | Configure Docker's signed upstream stable repository; install `docker-ce`, CLI, containerd, Compose and Buildx plugins; manage `/etc/docker/daemon.json`; enable `docker.service` | Provide a current container toolchain with bounded local logs and no network-exposed daemon API |
+| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening and Docker playbooks with one command while retaining individual category entry points |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
 It has no output or forwarding chain, does not flush the global ruleset, and
@@ -129,7 +178,8 @@ Docker-published ports use forwarding and are **not protected by this host input
 policy**. Bind private containers to localhost (for example,
 `-p 127.0.0.1:8080:80`) or publish them only on the event network deliberately.
 See [Docker's firewall documentation](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
-Docker installation and container-specific firewall policy are a later category.
+The Docker playbook leaves Docker's firewall management enabled because disabling
+it usually breaks container networking. It does not create or publish containers.
 
 The baseline retains Debian's ptrace, perf, user namespace, core dump, IPv6 and
 IP-forwarding defaults. It does not add USB restrictions or compiler/tool bans.
@@ -147,13 +197,19 @@ sudo nft list table inet deburner
 sudo aa-status
 sudo sysctl kernel.kptr_restrict kernel.dmesg_restrict fs.protected_regular
 sudo apt-config dump
+sudo docker info
+sudo docker compose version
+sudo docker buildx version
 ```
 
 Verify Wi-Fi, DHCP, DNS and any event VPN from the laptop. From a second machine
 on the event network, confirm a listening host test service is inaccessible until
 its port is explicitly allowed, then confirm it becomes reachable after a rerun.
 Later, test Docker separately: outbound container access and intentionally
-published ports must keep working after a firewall reload.
+published ports must keep working after a firewall reload. A simple online engine
+test is `sudo docker run --rm hello-world`; it downloads an image from Docker Hub.
+If Docker group access was enabled, repeat `docker info` without `sudo` only after
+logging out and back in.
 
 If verification fails during initial provisioning, inspect the Ansible error and
 the relevant system logs, correct the configuration, and rerun the playbook. Once
@@ -171,8 +227,8 @@ not the end-of-event sanitization procedure.
 
 ## Next categories
 
-- **Tooling:** Docker and selected CTF, debugging, reverse engineering, and network
-  tools in their own playbook. Tool selection remains to be agreed.
+- **Tooling:** selected CTF, debugging, reverse engineering, and network tools in
+  their own playbook. Tool selection remains to be agreed.
 - **Optional screen sharing:** share the existing GNOME Wayland desktop with
   teammates, preferably view-only, with an explicit enable/disable workflow and
   event-network restrictions. GNOME's supported desktop-sharing workflow uses

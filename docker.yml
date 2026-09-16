@@ -1,5 +1,5 @@
 ---
-- name: Apply the Debian burner baseline
+- name: Install and configure Docker for the burner
   hosts: burner
   become: true
   gather_facts: true
@@ -17,4 +17,4 @@
           - ansible_connection == 'local'
         fail_msg: This playbook supports locally managed Debian 13 amd64 with systemd only.
   roles:
-    - hardening
+    - docker

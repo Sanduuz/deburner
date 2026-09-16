@@ -8,3 +8,8 @@ hardening_disable_ssh: true
 # These allow IPv4 and IPv6 connections from any source.
 hardening_allowed_tcp_ports: []
 hardening_allowed_udp_ports: []
+
+# Optional Docker socket access. Members of this group can take full control of
+# the host; leave empty to use `sudo docker ...` instead.
+docker_group_users: []
+# docker_group_users: [your_username]
