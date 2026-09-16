@@ -43,18 +43,27 @@
     enabled: true
     state: started
 
-- name: Disable incoming SSH service and socket if installed
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: false
-    state: stopped
-    masked: true
+- name: Check for installed incoming SSH units
+  ansible.builtin.stat:
+    path: "/usr/lib/systemd/system/{{ item }}"
   loop:
     - ssh.socket
     - ssh.service
+  register: hardening_ssh_units
+  when: hardening_disable_ssh | bool
+
+- name: Disable incoming SSH service and socket if installed
+  ansible.builtin.systemd_service:
+    name: "{{ item.item }}"
+    enabled: false
+    state: stopped
+    masked: true
+  loop: "{{ hardening_ssh_units.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
   when:
     - hardening_disable_ssh | bool
-    - item in ansible_facts.services
+    - item.stat.exists
 
 - name: Configure automatic security updates without automatic reboots
   ansible.builtin.template:

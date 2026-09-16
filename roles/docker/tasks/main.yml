@@ -83,7 +83,7 @@
     group: root
     mode: '0644'
 
-- name: Install the latest stable Docker Engine
+- name: Install the latest stable Docker Engine  # noqa package-latest
   ansible.builtin.apt:
     name:
       - containerd.io

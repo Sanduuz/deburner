@@ -1,3 +1,7 @@
 local.yml
 *.retry
 __pycache__/
+.cache/
+.test-vm/
+.test-results/
+.venv/

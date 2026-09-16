@@ -84,6 +84,139 @@ Check mode on a fresh machine may fail when a later task needs a package or
 directory that was only simulated earlier. It does not verify the live firewall,
 kernel, networking, or AppArmor behavior.
 
+### Local validation
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) on the
+development machine, then create the locked validation environment and run all
+local checks:
+
+```sh
+make setup
+make check
+```
+
+`make check` verifies whitespace, checks every YAML file with yamllint, runs
+ansible-lint with its production profile, and performs an Ansible syntax check on
+every top-level playbook. The development dependencies are isolated in `.venv`
+and locked by `uv.lock`; they are not installed globally or provisioned on the
+burner. Run `uv lock --upgrade` deliberately when updating the validation tools.
+
+### Local test VM lifecycle
+
+The Makefile also provides the host-side lifecycle for a disposable libvirt test
+VM. It defines an amd64 KVM guest with four virtual CPUs, 8 GiB RAM, userspace
+networking, a serial console and a 450 GiB sparse QCOW2 disk. It uses the current
+user's `qemu:///session` connection and stores domain-specific files below
+`.test-vm/` in the repository.
+
+On a Debian development host, install the required virtualization commands and
+ensure the current user can access `/dev/kvm`:
+
+```sh
+sudo apt install qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst passt xorriso
+make test-prerequisites
+```
+
+Prepare the base image separately when desired:
+
+```sh
+make test-image
+make test-image-status
+```
+
+`test-image` downloads the current official Debian 13 genericcloud amd64 image
+from `cloud.debian.org`, reads its expected digest from Debian's `SHA512SUMS`, and
+accepts the image only when its SHA-512 digest matches. Debian's `latest`
+directory does not currently publish a detached signature for that manifest, so
+its authenticity relies on Debian's HTTPS service. The digest still detects
+corrupt or incomplete image downloads.
+
+The verified base image is content-addressed and retained below
+`.cache/test-vm/`. Every `test-create` checks Debian's current manifest, verifies
+the corresponding cached image or downloads it automatically, and creates a new
+450 GiB copy-on-write overlay. The overlay consumes space only as the guest
+writes data; it depends on the cached base image for its lifetime.
+
+Manage the domain with:
+
+```sh
+make test-create
+make test-status
+make test-start
+make test-wait
+make test-console   # Leave the console with Ctrl+]
+make test-stop
+make test-clean
+```
+
+`test-stop` requests a graceful shutdown and waits for up to 60 seconds. Use
+`make test-destroy` only when a running guest cannot shut down normally.
+`test-clean` refuses to remove a running guest, an unexpected domain name, state
+outside this repository, or a directory without the matching safety marker. It
+keeps the verified base image for the next test. `make test-image-purge` removes
+the complete image cache only when no `deburner-test` domain exists.
+
+Each new VM receives a NoCloud seed that installs Ansible, a Debian GNOME
+baseline and `qemu-guest-agent`, expands the root filesystem, and does not create
+credentials for host access. The `passt` userspace network provides outbound
+guest access without forwarding any inbound ports. The host communicates with
+the guest agent only through the private virtio channel declared in the domain.
+
+`test-wait` waits for that channel and for cloud-init to finish. It then uses the
+guest agent to verify Python 3, root command execution, DNS resolution and root
+filesystem expansion. The workflow does not enable, configure, or use SSH.
+
+`test-create` also builds an immutable source ISO from files reported by
+`git ls-files --cached --others --exclude-standard`. Ignored files, including
+the operator's `local.yml`, Git metadata, caches and earlier test state are not
+copied. The guest receives a generated `local.yml` that explicitly disables the
+optional offline mirror. Cloud-init copies this snapshot to `/opt/deburner`
+before the guest agent becomes ready.
+
+After `test-wait`, the remaining stages can be run separately:
+
+```sh
+make test-provision
+make test-verify
+make test-reboot
+make test-verify
+make test-idempotence
+```
+
+`test-provision` runs `deburner.yml` locally as root inside the guest through
+the guest agent. `test-verify` checks the supported platform, GNOME baseline,
+hardening, firewall, disabled SSH units, Docker configuration and representative
+commands from every tooling category. `test-reboot` requires the guest boot ID
+to change and waits for the agent to return. `test-idempotence` reruns the full
+playbook and requires Ansible's recap to report `changed=0`.
+
+The complete workflow is available as one command:
+
+```sh
+make test
+```
+
+This first runs `make check`, creates a fresh overlay, prepares the GNOME guest,
+provisions it, verifies it, reboots and verifies it again, checks idempotence,
+then removes the domain and overlay. The verified Debian cloud image remains
+cached. Provisioning downloads the complete toolset and can take a long time;
+the offline Debian mirror is deliberately excluded.
+
+Ansible and verification logs are retained under `.test-results/`, which is
+ignored by Git. Successful tests remove their VM automatically. A failed test
+preserves its VM and overlay for inspection; use `make test-status` and
+`make test-console`. During development, `make test-refresh` updates
+`/opt/deburner` from the same non-ignored working-tree file set through QGA, so a
+failed stage can be rerun without rebuilding the guest. Stop or destroy the VM
+before `make test-clean`.
+
+Resource settings and the connection can be overridden for one invocation:
+
+```sh
+make test-create TEST_VM_MEMORY_MIB=4096 TEST_VM_VCPUS=2
+make test-status TEST_VM_URI=qemu:///session TEST_VM_NAME=deburner-test-small
+```
+
 The category playbooks remain directly runnable when you only need one part:
 
 ```sh

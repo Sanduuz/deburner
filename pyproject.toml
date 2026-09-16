@@ -1,0 +1,21 @@
+[project]
+name = "deburner-development"
+version = "0.1.0"
+description = "Local development tools for deburner"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ansible-core",
+    "ansible-lint",
+    "ruff",
+    "yamllint",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

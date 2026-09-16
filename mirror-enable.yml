@@ -6,6 +6,8 @@
   vars_files:
     - - local.yml
       - local.yml.example
-  roles:
-    - role: offline_mirror
-      tasks_from: enable
+  tasks:
+    - name: Point APT at the synchronized offline mirror
+      ansible.builtin.include_role:
+        name: offline_mirror
+        tasks_from: enable

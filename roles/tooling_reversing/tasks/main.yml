@@ -60,7 +60,8 @@
 - name: Define the current Ghidra artifact
   ansible.builtin.set_fact:
     tooling_reversing_ghidra_asset: "{{ tooling_reversing_ghidra_assets[0] }}"
-    tooling_reversing_ghidra_archive_dir: "{{ tooling_reversing_ghidra_assets[0].name | regex_replace('\\.zip$', '') }}"
+    tooling_reversing_ghidra_archive_dir: >-
+      {{ tooling_reversing_ghidra_assets[0].name.rsplit('_', 1)[0] }}
 
 - name: Check whether the current Ghidra release is installed
   ansible.builtin.stat:
