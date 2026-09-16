@@ -1,0 +1,25 @@
+# Managed by deburner. Replace only our own table, atomically.
+# 'add' succeeds even when the table already exists.
+add table inet deburner
+delete table inet deburner
+table inet deburner {
+    chain input {
+        type filter hook input priority 0; policy drop;
+        iifname "lo" accept
+        ct state invalid drop
+        ct state established,related accept
+        # Keep IPv6 neighbour discovery, PMTU and diagnostic ping working.
+        meta l4proto { icmp, ipv6-icmp } accept
+        # DHCP replies, including broadcasts and DHCPv6 multicast.
+        udp sport 67 udp dport 68 accept
+        udp sport 547 udp dport 546 accept
+{% if hardening_allowed_tcp_ports | length %}
+        tcp dport { {{ hardening_allowed_tcp_ports | join(', ') }} } accept
+{% endif %}
+{% if hardening_allowed_udp_ports | length %}
+        udp dport { {{ hardening_allowed_udp_ports | join(', ') }} } accept
+{% endif %}
+    }
+    # Outbound and forwarded traffic retain their existing policies.
+    # Docker owns its container forwarding and published-port rules.
+}

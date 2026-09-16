@@ -1,0 +1,26 @@
+---
+# Apply pending package updates while preparing the machine online.
+hardening_upgrade_packages: true
+# Leave updates operator-controlled during exercises and offline operation.
+hardening_automatic_security_updates: false
+hardening_disable_ssh: true
+
+# These ports are reachable from ANY network. Prefer event-specific overrides.
+hardening_allowed_tcp_ports: []
+hardening_allowed_udp_ports: []
+
+# Preserve ptrace, perf, user namespaces, forwarding and core dump defaults.
+hardening_sysctl:
+  kernel.kptr_restrict: 2
+  kernel.dmesg_restrict: 1
+  fs.protected_hardlinks: 1
+  fs.protected_symlinks: 1
+  fs.protected_fifos: 1
+  fs.protected_regular: 2
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  net.ipv4.tcp_syncookies: 1

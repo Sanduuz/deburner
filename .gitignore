@@ -1,0 +1,3 @@
+local.yml
+*.retry
+__pycache__/

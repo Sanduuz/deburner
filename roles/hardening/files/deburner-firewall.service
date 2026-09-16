@@ -1,0 +1,18 @@
+[Unit]
+Description=Deburner host input firewall
+Documentation=https://github.com/sanduuz/deburner
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft --file /etc/deburner/firewall.nft
+ExecReload=/usr/sbin/nft --file /etc/deburner/firewall.nft
+ExecStop=/usr/sbin/nft delete table inet deburner
+
+[Install]
+WantedBy=multi-user.target

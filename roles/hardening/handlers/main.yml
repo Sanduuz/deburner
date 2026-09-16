@@ -1,0 +1,9 @@
+---
+- name: Apply deburner sysctl settings
+  ansible.builtin.command: /usr/lib/systemd/systemd-sysctl /etc/sysctl.d/90-deburner.conf
+  changed_when: true
+
+- name: Reload deburner firewall
+  ansible.builtin.systemd_service:
+    name: deburner-firewall.service
+    state: reloaded

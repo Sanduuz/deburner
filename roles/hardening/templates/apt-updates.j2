@@ -1,0 +1,9 @@
+// Managed by deburner. No automatic reboots during an exercise.
+APT::Periodic::Update-Package-Lists "{{ 1 if hardening_automatic_security_updates | bool else 0 }}";
+APT::Periodic::Unattended-Upgrade "{{ 1 if hardening_automatic_security_updates | bool else 0 }}";
+Unattended-Upgrade::Automatic-Reboot "false";
+// Clear earlier origin lists so opt-in upgrades cover Debian security only.
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Debian,codename=trixie-security,label=Debian-Security";
+};

@@ -1,0 +1,10 @@
+---
+# Copy to local.yml. This file is ignored by Git.
+hardening_upgrade_packages: true
+hardening_automatic_security_updates: false
+hardening_disable_ssh: true
+
+# Open only the host service ports needed for the current event.
+# These allow IPv4 and IPv6 connections from any source.
+hardening_allowed_tcp_ports: []
+hardening_allowed_udp_ports: []

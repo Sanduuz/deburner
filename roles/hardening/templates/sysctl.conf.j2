@@ -1,0 +1,4 @@
+# Managed by deburner. Override hardening_sysctl in your local variables.
+{% for key, value in hardening_sysctl | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}

@@ -1,0 +1,118 @@
+---
+- name: Validate firewall port overrides
+  ansible.builtin.assert:
+    that:
+      - item is integer
+      - item >= 1
+      - item <= 65535
+    fail_msg: Firewall ports must be YAML integers between 1 and 65535.
+  loop: "{{ hardening_allowed_tcp_ports + hardening_allowed_udp_ports }}"
+
+- name: Read service state
+  ansible.builtin.service_facts:
+
+- name: Refuse a competing nftables ruleset manager
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.services.get('nftables.service', {}).get('state', 'stopped') != 'running'
+      - ansible_facts.services.get('nftables.service', {}).get('status', 'disabled') != 'enabled'
+    fail_msg: >-
+      nftables.service already manages this host. Review its rules and disable it
+      before using deburner; its global flush can remove Docker and deburner rules.
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name:
+      - apparmor
+      - apparmor-utils
+      - nftables
+      - unattended-upgrades
+      - ca-certificates
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Apply available package updates
+  ansible.builtin.apt:
+    upgrade: safe
+  when: hardening_upgrade_packages | bool
+
+- name: Enable AppArmor's installed profiles
+  ansible.builtin.systemd_service:
+    name: apparmor.service
+    enabled: true
+    state: started
+
+- name: Disable incoming SSH service and socket if installed
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+    masked: true
+  loop:
+    - ssh.socket
+    - ssh.service
+  when:
+    - hardening_disable_ssh | bool
+    - item in ansible_facts.services
+
+- name: Configure automatic security updates without automatic reboots
+  ansible.builtin.template:
+    src: apt-updates.j2
+    dest: /etc/apt/apt.conf.d/99deburner-updates
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install basic kernel hardening
+  ansible.builtin.template:
+    src: sysctl.conf.j2
+    dest: /etc/sysctl.d/90-deburner.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Apply deburner sysctl settings
+
+- name: Create firewall configuration directory
+  ansible.builtin.file:
+    path: /etc/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install and validate the host firewall
+  ansible.builtin.template:
+    src: firewall.nft.j2
+    dest: /etc/deburner/firewall.nft
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/nft --check --file %s
+  notify: Reload deburner firewall
+
+- name: Install the independent firewall service
+  ansible.builtin.copy:
+    src: deburner-firewall.service
+    dest: /etc/systemd/system/deburner-firewall.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: hardening_firewall_unit
+  notify: Reload deburner firewall
+
+- name: Enable the host firewall
+  ansible.builtin.systemd_service:
+    name: deburner-firewall.service
+    enabled: true
+    state: started
+    daemon_reload: "{{ hardening_firewall_unit.changed }}"
+
+- name: Apply pending configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Explain reboot policy
+  ansible.builtin.debug:
+    msg: >-
+      Reboot after initial preparation to load updated kernels and boot-time
+      AppArmor settings. No reboot is performed automatically.
