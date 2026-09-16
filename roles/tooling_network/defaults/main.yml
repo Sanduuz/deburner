@@ -2,6 +2,7 @@
 # These packages install clients and command-line tools. They do not open ports.
 tooling_network_packages:
   - bind9-dnsutils
+  - bmon
   - ethtool
   - iproute2
   - iputils-ping
@@ -10,10 +11,14 @@ tooling_network_packages:
   - netcat-openbsd
   - nmap
   - openvpn
+  - openssh-client
+  - picocom
   - proxychains4
   - socat
+  - sshfs
   - tcpdump
   - traceroute
   - tshark
+  - wireshark
   - whois
   - wireguard-tools

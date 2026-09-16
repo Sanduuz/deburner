@@ -1,0 +1,255 @@
+---
+- name: Validate the analysis package list
+  ansible.builtin.assert:
+    that:
+      - tooling_analysis_packages | type_debug == 'list'
+      - tooling_analysis_packages | length > 0
+      - tooling_analysis_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_analysis_packages | length
+      - tooling_analysis_uv_release_api is match('^https://api\.github\.com/')
+      - tooling_analysis_volatility3_release_api is match('^https://api\.github\.com/')
+      - tooling_analysis_volatility3_path == '/opt/volatility3'
+      - tooling_analysis_volatility2_url is match('^https://downloads\.volatilityfoundation\.org/')
+      - tooling_analysis_volatility2_checksum is match('^sha256:[0-9a-f]{64}$')
+      - tooling_analysis_volatility2_archive is match('^/var/cache/deburner/')
+      - tooling_analysis_volatility2_install_dir == '/opt/volatility_2.6_lin64_standalone'
+    fail_msg: Review the analysis tooling variables; one or more values are invalid.
+
+- name: Install system and file analysis packages
+  ansible.builtin.apt:
+    name: "{{ tooling_analysis_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the analysis artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable uv release
+  ansible.builtin.uri:
+    url: "{{ tooling_analysis_uv_release_api }}"
+    headers: "{{ tooling_analysis_github_api_headers }}"
+    return_content: true
+  register: tooling_analysis_uv_release
+  changed_when: false
+
+- name: Select the uv amd64 Linux archive
+  ansible.builtin.set_fact:
+    tooling_analysis_uv_assets: >-
+      {{ tooling_analysis_uv_release.json.assets
+         | selectattr('name', 'equalto', 'uv-x86_64-unknown-linux-gnu.tar.gz')
+         | list }}
+
+- name: Validate the latest uv release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_analysis_uv_release.json.tag_name is match('^[0-9]+(?:\.[0-9]+)+$')
+      - tooling_analysis_uv_assets | length == 1
+      - tooling_analysis_uv_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest uv release does not contain the expected checksum-described amd64 archive.
+
+- name: Define the current uv artifact
+  ansible.builtin.set_fact:
+    tooling_analysis_uv_asset: "{{ tooling_analysis_uv_assets[0] }}"
+    tooling_analysis_uv_install_dir: "/opt/uv-{{ tooling_analysis_uv_release.json.tag_name }}"
+
+- name: Check whether the current uv release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_analysis_uv_install_dir }}/uv-x86_64-unknown-linux-gnu/uv"
+  register: tooling_analysis_uv_executable
+
+- name: Install the current uv release
+  when: not tooling_analysis_uv_executable.stat.exists
+  block:
+    - name: Create the uv version directory
+      ansible.builtin.file:
+        path: "{{ tooling_analysis_uv_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download uv
+      ansible.builtin.get_url:
+        url: "{{ tooling_analysis_uv_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_analysis_uv_asset.name }}"
+        checksum: "{{ tooling_analysis_uv_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract uv under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_analysis_uv_asset.name }}"
+        dest: "{{ tooling_analysis_uv_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded uv archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_analysis_uv_asset.name }}"
+        state: absent
+
+- name: Install stable uv commands
+  ansible.builtin.file:
+    src: "{{ tooling_analysis_uv_install_dir }}/uv-x86_64-unknown-linux-gnu/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - uv
+    - uvx
+
+- name: Read the latest stable Volatility 3 release
+  ansible.builtin.uri:
+    url: "{{ tooling_analysis_volatility3_release_api }}"
+    headers: "{{ tooling_analysis_github_api_headers }}"
+    return_content: true
+  register: tooling_analysis_volatility3_release
+  changed_when: false
+
+- name: Select the Volatility 3 platform-independent wheel
+  ansible.builtin.set_fact:
+    tooling_analysis_volatility3_assets: >-
+      {{ tooling_analysis_volatility3_release.json.assets
+         | selectattr('name', 'match', '^volatility3-[0-9.]+-py3-none-any\.whl$')
+         | list }}
+
+- name: Validate the Volatility 3 release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_analysis_volatility3_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_analysis_volatility3_assets | length == 1
+      - tooling_analysis_volatility3_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest Volatility 3 release does not contain the expected checksum-described wheel.
+
+- name: Define the current Volatility 3 artifact
+  ansible.builtin.set_fact:
+    tooling_analysis_volatility3_asset: "{{ tooling_analysis_volatility3_assets[0] }}"
+    tooling_analysis_volatility3_install_dir: >-
+      /opt/volatility3-{{ tooling_analysis_volatility3_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Check whether the current Volatility 3 release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_analysis_volatility3_install_dir }}/bin/vol"
+  register: tooling_analysis_volatility3_executable
+
+- name: Install the official Volatility 3 release wheel with uv
+  when: not tooling_analysis_volatility3_executable.stat.exists
+  block:
+    - name: Create the Volatility 3 virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "{{ tooling_analysis_volatility3_install_dir }}"
+        creates: "{{ tooling_analysis_volatility3_install_dir }}/bin/python"
+
+    - name: Download the Volatility 3 release wheel
+      ansible.builtin.get_url:
+        url: "{{ tooling_analysis_volatility3_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_analysis_volatility3_asset.name }}"
+        checksum: "{{ tooling_analysis_volatility3_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Install Volatility 3 and its dependencies
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ tooling_analysis_volatility3_install_dir }}/bin/python"
+          - "/var/cache/deburner/{{ tooling_analysis_volatility3_asset.name }}"
+      changed_when: true
+
+    - name: Remove the downloaded Volatility 3 wheel
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_analysis_volatility3_asset.name }}"
+        state: absent
+
+- name: Create the stable Volatility 3 path
+  ansible.builtin.file:
+    src: "{{ tooling_analysis_volatility3_install_dir }}"
+    dest: "{{ tooling_analysis_volatility3_path }}"
+    state: link
+    force: true
+
+- name: Install stable Volatility 3 commands
+  ansible.builtin.file:
+    src: "{{ tooling_analysis_volatility3_path }}/bin/{{ item.source }}"
+    dest: "/usr/local/bin/{{ item.destination }}"
+    state: link
+    force: true
+  loop:
+    - source: vol
+      destination: vol
+    - source: vol
+      destination: volatility3
+    - source: volshell
+      destination: volshell
+  loop_control:
+    label: "{{ item.destination }}"
+
+- name: Check whether Volatility 2 is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_analysis_volatility2_install_dir }}/volatility_2.6_lin64_standalone"
+  register: tooling_analysis_volatility2_executable
+
+- name: Install the official Volatility 2 standalone build
+  when: not tooling_analysis_volatility2_executable.stat.exists
+  block:
+    - name: Download Volatility 2
+      ansible.builtin.get_url:
+        url: "{{ tooling_analysis_volatility2_url }}"
+        dest: "{{ tooling_analysis_volatility2_archive }}"
+        checksum: "{{ tooling_analysis_volatility2_checksum }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract Volatility 2 under opt
+      ansible.builtin.unarchive:
+        src: "{{ tooling_analysis_volatility2_archive }}"
+        dest: /opt
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded Volatility 2 archive
+      ansible.builtin.file:
+        path: "{{ tooling_analysis_volatility2_archive }}"
+        state: absent
+
+- name: Ensure the Volatility 2 executable is runnable
+  ansible.builtin.file:
+    path: "{{ tooling_analysis_volatility2_install_dir }}/volatility_2.6_lin64_standalone"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the stable Volatility 2 path
+  ansible.builtin.file:
+    src: "{{ tooling_analysis_volatility2_install_dir }}"
+    dest: /opt/volatility2
+    state: link
+    force: true
+
+- name: Install the Volatility 2 command
+  ansible.builtin.file:
+    src: /opt/volatility2/volatility_2.6_lin64_standalone
+    dest: /usr/local/bin/volatility2
+    state: link
+    force: true

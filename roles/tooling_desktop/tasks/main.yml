@@ -1,0 +1,122 @@
+---
+- name: Validate the desktop package list
+  ansible.builtin.assert:
+    that:
+      - tooling_desktop_packages | type_debug == 'list'
+      - tooling_desktop_packages | length > 0
+      - tooling_desktop_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_desktop_packages | length
+      - tooling_desktop_zed_release_api is match('^https://api\.github\.com/')
+    fail_msg: Review the desktop tooling variables; one or more values are invalid.
+
+- name: Install desktop workstation packages
+  ansible.builtin.apt:
+    name: "{{ tooling_desktop_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the desktop artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the system desktop launcher directory
+  ansible.builtin.file:
+    path: /usr/local/share/applications
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable Zed release
+  ansible.builtin.uri:
+    url: "{{ tooling_desktop_zed_release_api }}"
+    headers: "{{ tooling_desktop_github_api_headers }}"
+    return_content: true
+  register: tooling_desktop_zed_release
+  changed_when: false
+
+- name: Select the Zed amd64 Linux archive
+  ansible.builtin.set_fact:
+    tooling_desktop_zed_assets: >-
+      {{ tooling_desktop_zed_release.json.assets
+         | selectattr('name', 'equalto', 'zed-linux-x86_64.tar.gz')
+         | list }}
+
+- name: Validate the latest Zed release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_desktop_zed_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_desktop_zed_assets | length == 1
+      - tooling_desktop_zed_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest Zed release does not contain the expected checksum-described amd64 archive.
+
+- name: Define the current Zed artifact
+  ansible.builtin.set_fact:
+    tooling_desktop_zed_asset: "{{ tooling_desktop_zed_assets[0] }}"
+    tooling_desktop_zed_install_dir: >-
+      /opt/zed-{{ tooling_desktop_zed_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Check whether the current Zed release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_desktop_zed_install_dir }}/zed.app/bin/zed"
+  register: tooling_desktop_zed_executable
+
+- name: Install the current Zed release
+  when: not tooling_desktop_zed_executable.stat.exists
+  block:
+    - name: Create the Zed version directory
+      ansible.builtin.file:
+        path: "{{ tooling_desktop_zed_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download Zed
+      ansible.builtin.get_url:
+        url: "{{ tooling_desktop_zed_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_desktop_zed_asset.name }}"
+        checksum: "{{ tooling_desktop_zed_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract Zed under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_desktop_zed_asset.name }}"
+        dest: "{{ tooling_desktop_zed_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded Zed archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_desktop_zed_asset.name }}"
+        state: absent
+
+- name: Create the stable Zed path
+  ansible.builtin.file:
+    src: "{{ tooling_desktop_zed_install_dir }}/zed.app"
+    dest: /opt/zed
+    state: link
+    force: true
+
+- name: Install the Zed command
+  ansible.builtin.file:
+    src: /opt/zed/bin/zed
+    dest: /usr/local/bin/zed
+    state: link
+    force: true
+
+- name: Install the Zed desktop launcher
+  ansible.builtin.copy:
+    src: zed.desktop
+    dest: /usr/local/share/applications/dev.zed.Zed.desktop
+    owner: root
+    group: root
+    mode: '0644'

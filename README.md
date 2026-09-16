@@ -46,26 +46,27 @@ Ansible collections are required.
 
 Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
-playbooks in dependency order: hardening, core and network tooling, exploitation
-tooling, reverse-engineering tooling, web tooling, Docker, and the optional
-offline-mirror sync. Future optional playbooks that expose services, such as
-screen sharing, will not be included. All tasks target `localhost`; provisioning
-tasks use privilege escalation. They are idempotent so you can rerun them during
-initial provisioning or to apply a deliberate configuration change, such as
-opening another port. Rerunning the playbooks is not a recovery process for a
-machine that may have been compromised. Review the repository before running it
-with root privileges. Keep `local.yml` private; it is ignored by Git. Each
-playbook loads `local.yml` automatically, falling back to `local.yml.example` when
-it is absent. Nothing commits or pushes changes for you.
+playbooks in dependency order: hardening, core, network, analysis and desktop
+tooling, exploitation tooling, reverse-engineering tooling, web tooling, Docker,
+and the optional offline-mirror sync. Future optional playbooks that expose
+services, such as screen sharing, will not be included. All tasks target
+`localhost`; provisioning tasks use privilege escalation. They are idempotent so
+you can rerun them during initial provisioning or to apply a deliberate
+configuration change, such as opening another port. Rerunning the playbooks is
+not a recovery process for a machine that may have been compromised. Review the
+repository before running it with root privileges. Keep `local.yml` private; it
+is ignored by Git. Each playbook loads `local.yml` automatically, falling back to
+`local.yml.example` when it is absent. Nothing commits or pushes changes for you.
 
 The preflight first requires more than 400 GB of free space on the filesystem
 containing `/srv`, the planned offline-mirror location. It then requests signed
-Debian and Docker repository metadata, GitHub's release API and PortSwigger's
-release page over certificate-validated HTTPS. It also checks service-specific
-response text, which prevents a captive portal's generic success page from
-passing. A failure stops `deburner.yml` before any system changes. The individual
-category playbooks remain available for deliberate partial or offline reruns and
-do not invoke the preflight automatically.
+Debian and Docker repository metadata, GitHub's release API, PyPI package access,
+Rust's distribution service and PortSwigger's release page over
+certificate-validated HTTPS. It also
+checks service-specific response text, which prevents a captive portal's generic
+success page from passing. A failure stops `deburner.yml` before any system
+changes. The individual category playbooks remain available for deliberate
+partial or offline reruns and do not invoke the preflight automatically.
 
 The disk threshold uses decimal gigabytes: 400 GB is 400,000,000,000 bytes. Change
 `preflight_storage_path` if the future mirror will live on another filesystem, or
@@ -90,6 +91,8 @@ ansible-playbook preflight.yml
 ansible-playbook hardening.yml --ask-become-pass
 ansible-playbook tooling-core.yml --ask-become-pass
 ansible-playbook tooling-network.yml --ask-become-pass
+ansible-playbook tooling-analysis.yml --ask-become-pass
+ansible-playbook tooling-desktop.yml --ask-become-pass
 ansible-playbook tooling-exploitation.yml --ask-become-pass
 ansible-playbook tooling-reversing.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
@@ -178,11 +181,21 @@ that the installed daemon supports the chosen values.
 
 ### Core tooling
 
-`tooling-core.yml` installs a general command-line and build environment from
-Debian packages. It includes Git, curl, wget, jq, ripgrep, tmux, Vim, common
-archive utilities, Python with pipx and virtual environments, and C/C++ build
-tools including CMake, Meson and Ninja. It does not install Python applications
+`tooling-core.yml` installs a general command-line and build environment. Its
+Debian packages include Git, curl, wget, jq, ripgrep, tmux, screen, Vim, Nano,
+common archive and transfer utilities, Go, Python with pipx and virtual
+environments, Flake8, XML tools, apt-file, password-store, and C/C++ build tools
+including CMake, Meson and Ninja. It does not install Python applications
 globally with pip or change shell and editor configuration.
+
+Rust comes from the official upstream rustup distribution rather than Debian's
+`rustc` and `cargo` packages. The role verifies the published rustup-init SHA-256
+checksum and installs the latest stable default-profile toolchain under `/opt`.
+The compiler, Cargo, Clippy, rustfmt and related commands are available through
+`/usr/local/bin`. Rerunning the role while online updates the stable toolchain.
+Cargo continues to use each user's own writable `~/.cargo` directory for package
+downloads and `cargo install` output. The shared toolchain is root-managed, so
+use commands such as `sudo rustup target add <target>` when changing it.
 
 The package list is defined in
 `roles/tooling_core/defaults/main.yml`. To replace it, copy the complete list to
@@ -191,16 +204,58 @@ accidental overrides.
 
 ### Network tooling
 
-`tooling-network.yml` installs command-line diagnostics, capture and connectivity
-tools from Debian packages: DNS utilities, iproute2, ping, MTR, netcat, Nmap,
-OpenVPN, WireGuard tools, proxychains, socat, tcpdump, traceroute, TShark and
-Whois. Installing these clients does not enable an inbound network service or
-open a firewall port.
+`tooling-network.yml` installs diagnostics, capture and connectivity tools from
+Debian packages: DNS utilities, iproute2, ping, MTR, netcat, Nmap, OpenVPN,
+WireGuard tools, OpenSSH and SSHFS clients, proxychains, serial-console tools,
+bmon, socat, tcpdump, traceroute, TShark, Wireshark and Whois. Installing these
+clients does not enable an inbound network service or open a firewall port.
 
 Unprivileged packet capture is explicitly disabled. Use `sudo tcpdump` or
 `sudo tshark` when capture privileges are required, then inspect saved capture
 files without root privileges. The package list can be replaced with
 `tooling_network_packages` in `local.yml`.
+
+### System and file analysis tooling
+
+`tooling-analysis.yml` installs on-demand tools for inspecting processes,
+filesystems, disk images, documents, images and local databases. This includes
+strace, ltrace, htop, iotop, inotify-tools, Binwalk, ExifTool, YARA, Sleuth Kit,
+Foremost, TestDisk/PhotoRec, SQLite, PostgreSQL and MariaDB clients, and focused
+utilities for PDF, PNG, barcode and hexadecimal analysis.
+
+The role installs no audit daemon, continuous collector, scanner service or
+scheduled logging task. Every tool runs only when invoked. Some operations, such
+as tracing another user's process or reading a raw disk, still require root. The
+complete package list can be replaced with `tooling_analysis_packages` in
+`local.yml`.
+
+The role also installs the latest stable uv release. Volatility 3 does not publish
+an official standalone Linux executable, so the role downloads its checksummed
+official release wheel and uses uv to install it in a versioned virtual
+environment under `/opt`. `/opt/volatility3` points to the active version, and
+the `vol`, `volatility3`, and `volshell` commands use that environment.
+Volatility 2 requires Python 2.7, while uv supports Python 3.6 and newer, so it
+cannot manage a working Volatility 2 environment. The role instead installs the
+final official Volatility 2.6 standalone Linux build under `/opt`, points
+`/opt/volatility2` to it, and exposes it as `volatility2`. Volatility 2 is
+archived legacy software and receives no updates; keep it only for profiles and
+plugins that have not been ported.
+
+### Desktop workstation tooling
+
+`tooling-desktop.yml` installs Chromium, GIMP, Meld, PulseAudio Volume Control,
+D-Feet and virt-manager from Debian. It also resolves the latest stable Zed
+release from the official GitHub repository, verifies the release-provided
+SHA-256 digest, and installs it under `/opt` with a stable command and GNOME
+launcher. The role does not manage application profiles, settings, extensions or
+accounts. Rerunning it while online upgrades Zed when a new stable release is
+available.
+
+Debian may install and socket-activate local libvirt components as recommended
+dependencies of virt-manager, but this role does not configure a libvirt TCP
+listener or open a firewall port. Replace the complete Debian package list with
+`tooling_desktop_packages` in `local.yml`; Zed is installed independently of that
+list.
 
 ### Exploitation and debugging tooling
 
@@ -349,13 +404,14 @@ Refresh the mirror shortly before disconnecting. Debian security metadata has an
 expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
-Python package indexes, Ghidra, Binary Ninja, radare2, or Burp Suite.
+Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
+or Burp Suite.
 
 ## Modifications made
 
 | Area | Modification | Purpose / impact |
 | --- | --- | --- |
-| Preflight | Require more than 400 GB free for `/srv`; verify Debian, Docker, GitHub and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when storage is insufficient or required Internet services are unavailable or intercepted by a captive portal |
+| Preflight | Require more than 400 GB free for `/srv`; verify Debian, Docker, GitHub, PyPI, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when storage is insufficient or required Internet services are unavailable or intercepted by a captive portal |
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |
@@ -363,8 +419,10 @@ Python package indexes, Ghidra, Binary Ninja, radare2, or Burp Suite.
 | Kernel | Manage `/etc/sysctl.d/90-deburner.conf` and apply it | Restrict kernel pointer/dmesg access; protect links, FIFOs and regular files in sticky directories; reject ICMP redirects; disable IPv4 redirect sending; enable SYN cookies |
 | Firewall | Manage `/etc/deburner/firewall.nft` and `deburner-firewall.service` | Drop unsolicited host input for IPv4/IPv6; allow loopback, established/related connections, ICMP, DHCP replies, and explicit port exceptions |
 | Docker | Configure Docker's signed upstream stable repository; install `docker-ce`, CLI, containerd, Compose and Buildx plugins; manage `/etc/docker/daemon.json`; enable `docker.service` | Provide a current container toolchain with bounded local logs and no network-exposed daemon API |
-| Core tooling | Install command-line, archive, Python and native build packages from Debian | Provide a general base for CTF tooling without modifying personal shell or editor settings |
+| Core tooling | Install command-line, archive, Python and native build packages from Debian; install the current upstream stable Rust toolchain with rustup | Provide a general base for CTF tooling without modifying personal shell or editor settings |
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
+| Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
+| Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; add stable commands and desktop launchers | Provide current native and Java reverse-engineering tools without accounts or stored license keys |
 | Web tooling | Resolve and install the current Burp Suite Community JAR with a command and desktop launcher | Provide a current account-free web proxy and testing toolkit |
@@ -406,7 +464,13 @@ sudo apt-config dump
 sudo docker info
 sudo docker compose version
 sudo docker buildx version
-command -v git rg python3 pipx nmap openvpn wg tcpdump tshark
+command -v git rg python3 pipx go rustup rustc cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
+rustup --version
+rustc --version
+cargo --version
+command -v strace ltrace htop binwalk exiftool sqlite3 yara fls photorec
+command -v uv uvx vol volatility2 volatility3 volshell
+command -v chromium gimp meld pavucontrol d-feet virt-manager zed
 command -v gdb gdb-multiarch pwn checksec r2 radare2 ghidra binaryninja burpsuite
 gdb --batch -ex 'peda show option' -ex quit
 ```
@@ -436,11 +500,10 @@ not the end-of-event sanitization procedure.
 
 ## Next categories
 
-- **Optional screen sharing:** share the existing GNOME Wayland desktop with
-  teammates, preferably view-only, with an explicit enable/disable workflow and
-  event-network restrictions. GNOME's supported desktop-sharing workflow uses
-  RDP; a VNC-specific solution needs separate investigation. See
-  [GNOME desktop sharing](https://help.gnome.org/gnome-help/sharing-desktop.html).
+- **Optional screen sharing:** VNC sharing of the existing GNOME Wayland desktop
+  remains deferred. WayVNC supports wlroots-based compositors and explicitly does
+  not support GNOME, so it cannot meet the current desktop requirement. See the
+  [WayVNC compatibility note](https://github.com/any1/wayvnc#introduction).
 - **Customizations:** personal shell, terminal, editor and GNOME preferences,
   kept separate from the security and tooling roles.
 

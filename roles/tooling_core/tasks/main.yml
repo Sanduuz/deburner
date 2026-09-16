@@ -5,7 +5,18 @@
       - tooling_core_packages | type_debug == 'list'
       - tooling_core_packages | length > 0
       - tooling_core_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_core_packages | length
-    fail_msg: tooling_core_packages must be a non-empty list of Debian package names.
+      - tooling_core_rustup_target == 'x86_64-unknown-linux-gnu'
+      - tooling_core_rustup_init_url is match('^https://static\.rust-lang\.org/')
+      - tooling_core_rustup_checksum_url == tooling_core_rustup_init_url + '.sha256'
+      - tooling_core_rustup_home == '/opt/rustup'
+      - tooling_core_rustup_cargo_home == '/opt/rustup-cargo'
+      - tooling_core_rustup_archive is match('^/var/cache/deburner/')
+      - tooling_core_rustup_profile in ['minimal', 'default', 'complete']
+      - tooling_core_rustup_toolchain == 'stable'
+      - tooling_core_rust_commands | type_debug == 'list'
+      - tooling_core_rust_commands | length > 0
+      - tooling_core_rust_commands | select('match', '^[a-z0-9][a-z0-9-]*$') | list | length == tooling_core_rust_commands | length
+    fail_msg: Review the core tooling variables; one or more values are invalid.
 
 - name: Install core workstation packages
   ansible.builtin.apt:
@@ -13,3 +24,96 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+
+- name: Create the core tooling artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check whether upstream rustup is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_core_rustup_cargo_home }}/bin/rustup"
+  register: tooling_core_rustup_executable
+
+- name: Install upstream rustup
+  when: not tooling_core_rustup_executable.stat.exists
+  block:
+    - name: Read the upstream rustup-init checksum
+      ansible.builtin.uri:
+        url: "{{ tooling_core_rustup_checksum_url }}"
+        return_content: true
+      register: tooling_core_rustup_checksum_response
+      changed_when: false
+
+    - name: Validate the rustup-init checksum
+      ansible.builtin.assert:
+        that:
+          - tooling_core_rustup_checksum_response.content.split() | length >= 1
+          - tooling_core_rustup_checksum_response.content.split()[0] is match('^[0-9a-f]{64}$')
+        fail_msg: The upstream rustup-init checksum response is invalid.
+
+    - name: Download rustup-init
+      ansible.builtin.get_url:
+        url: "{{ tooling_core_rustup_init_url }}"
+        dest: "{{ tooling_core_rustup_archive }}"
+        checksum: "sha256:{{ tooling_core_rustup_checksum_response.content.split()[0] }}"
+        owner: root
+        group: root
+        mode: '0755'
+        timeout: 60
+
+    - name: Install rustup and the current stable Rust toolchain
+      ansible.builtin.command:
+        argv:
+          - "{{ tooling_core_rustup_archive }}"
+          - -y
+          - --no-modify-path
+          - --default-host
+          - "{{ tooling_core_rustup_target }}"
+          - --default-toolchain
+          - "{{ tooling_core_rustup_toolchain }}"
+          - --profile
+          - "{{ tooling_core_rustup_profile }}"
+      environment:
+        RUSTUP_HOME: "{{ tooling_core_rustup_home }}"
+        CARGO_HOME: "{{ tooling_core_rustup_cargo_home }}"
+      changed_when: true
+
+    - name: Remove rustup-init
+      ansible.builtin.file:
+        path: "{{ tooling_core_rustup_archive }}"
+        state: absent
+
+- name: Update the upstream stable Rust toolchain
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_core_rustup_cargo_home }}/bin/rustup"
+      - update
+      - "{{ tooling_core_rustup_toolchain }}"
+  environment:
+    RUSTUP_HOME: "{{ tooling_core_rustup_home }}"
+    CARGO_HOME: "{{ tooling_core_rustup_cargo_home }}"
+  register: tooling_core_rust_update
+  changed_when: >-
+    'unchanged' not in (tooling_core_rust_update.stdout + tooling_core_rust_update.stderr)
+    or 'rustup updated' in (tooling_core_rust_update.stdout + tooling_core_rust_update.stderr)
+
+- name: Expose the stable Rust commands
+  ansible.builtin.file:
+    src: >-
+      {{ tooling_core_rustup_home }}/toolchains/{{ tooling_core_rustup_toolchain }}-{{ tooling_core_rustup_target }}/bin/{{ item }}
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop: "{{ tooling_core_rust_commands }}"
+
+- name: Install the system rustup command
+  ansible.builtin.template:
+    src: rustup.j2
+    dest: /usr/local/bin/rustup
+    owner: root
+    group: root
+    mode: '0755'

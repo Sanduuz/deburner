@@ -1,0 +1,4 @@
+#!/bin/sh
+export RUSTUP_HOME={{ tooling_core_rustup_home | quote }}
+export CARGO_HOME={{ tooling_core_rustup_cargo_home | quote }}
+exec {{ (tooling_core_rustup_cargo_home + '/bin/rustup') | quote }} "$@"

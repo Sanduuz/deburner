@@ -13,6 +13,12 @@
 - name: Install network and VPN tooling
   ansible.builtin.import_playbook: tooling-network.yml
 
+- name: Install system and file analysis tooling
+  ansible.builtin.import_playbook: tooling-analysis.yml
+
+- name: Install desktop workstation tooling
+  ansible.builtin.import_playbook: tooling-desktop.yml
+
 - name: Install exploitation and debugging tooling
   ansible.builtin.import_playbook: tooling-exploitation.yml
 

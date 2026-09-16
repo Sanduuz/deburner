@@ -1,0 +1,47 @@
+---
+# On-demand inspection and forensics tools. This role does not enable collectors
+# or install audit daemons.
+tooling_analysis_packages:
+  - acl
+  - attr
+  - binutils-multiarch
+  - binwalk
+  - debsecan
+  - dislocker
+  - foremost
+  - hexedit
+  - htop
+  - inotify-tools
+  - iotop
+  - libimage-exiftool-perl
+  - libguestfs-tools
+  - ltrace
+  - mariadb-client
+  - memtest86+
+  - pngcheck
+  - poppler-utils
+  - postgresql-client
+  - psmisc
+  - qpdf
+  - sleuthkit
+  - sqlite3
+  - strace
+  - testdisk
+  - xxd
+  - yara
+  - zbar-tools
+
+tooling_analysis_github_api_headers:
+  Accept: application/vnd.github+json
+  X-GitHub-Api-Version: '2022-11-28'
+
+tooling_analysis_uv_release_api: https://api.github.com/repos/astral-sh/uv/releases/latest
+tooling_analysis_volatility3_release_api: https://api.github.com/repos/volatilityfoundation/volatility3/releases/latest
+tooling_analysis_volatility3_path: /opt/volatility3
+
+# Volatility 2 requires Python 2, which uv does not support. Install the final
+# official standalone Linux build with its bundled runtime instead.
+tooling_analysis_volatility2_url: https://downloads.volatilityfoundation.org/releases/2.6/volatility_2.6_lin64_standalone.zip
+tooling_analysis_volatility2_checksum: sha256:dc375a0f6909cb93ac17a10e28a0963fcd2decfc3c4291aadb7e5e0cbe28874a
+tooling_analysis_volatility2_archive: /var/cache/deburner/volatility_2.6_lin64_standalone.zip
+tooling_analysis_volatility2_install_dir: /opt/volatility_2.6_lin64_standalone
