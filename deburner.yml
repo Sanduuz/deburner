@@ -24,3 +24,6 @@
 
 - name: Install Docker tooling
   ansible.builtin.import_playbook: docker.yml
+
+- name: Synchronize the optional offline Debian mirror
+  ansible.builtin.import_playbook: mirror-sync.yml

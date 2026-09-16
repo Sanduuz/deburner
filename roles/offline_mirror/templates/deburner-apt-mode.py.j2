@@ -1,0 +1,100 @@
+#!/usr/bin/python3
+"""Switch APT between Ansible-prepared online and offline source directories."""
+
+import argparse
+import fcntl
+import os
+from pathlib import Path
+import subprocess
+import sys
+from typing import NoReturn
+
+
+APT_SOURCES = Path("/etc/apt/sources.list.d")
+LOCK_FILE = Path("/run/lock/deburner-apt-mode.lock")
+SOURCE_DIRECTORIES = {
+    "online": Path("/etc/deburner/apt/sources-online"),
+    "offline": Path("/etc/deburner/apt/sources-offline"),
+}
+
+
+def fail(message: str) -> NoReturn:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def current_mode() -> str:
+    if not APT_SOURCES.is_symlink():
+        fail(f"{APT_SOURCES} is not a symlink managed by deburner")
+
+    target = APT_SOURCES.resolve(strict=False)
+    for mode, directory in SOURCE_DIRECTORIES.items():
+        if target == directory:
+            return mode
+    fail(f"{APT_SOURCES} points to an unknown directory: {target}")
+
+
+def repoint(mode: str) -> None:
+    target = SOURCE_DIRECTORIES[mode]
+    if not target.is_dir():
+        fail(f"APT source directory is missing: {target}")
+
+    temporary = APT_SOURCES.with_name(f".{APT_SOURCES.name}.deburner-{os.getpid()}")
+    try:
+        temporary.symlink_to(target, target_is_directory=True)
+        os.replace(temporary, APT_SOURCES)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def update_apt() -> None:
+    subprocess.run(["/usr/bin/apt-get", "update"], check=True)
+
+
+def switch(requested: str) -> None:
+    previous = current_mode()
+    if previous == requested:
+        print(f"APT is already in {requested} mode.")
+        return
+
+    repoint(requested)
+    try:
+        update_apt()
+    except subprocess.CalledProcessError:
+        print(
+            f"APT update failed in {requested} mode; restoring {previous} mode.",
+            file=sys.stderr,
+        )
+        repoint(previous)
+        subprocess.run(["/usr/bin/apt-get", "update"], check=False)
+        raise SystemExit(1)
+
+    print(f"Switched APT to {requested} mode.")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("online", "offline", "toggle", "status"))
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if args.mode == "status":
+        print(current_mode())
+        return
+
+    if os.geteuid() != 0:
+        fail("Changing APT mode requires root; run this command with sudo")
+
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOCK_FILE.open("w", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        requested = args.mode
+        if requested == "toggle":
+            requested = "online" if current_mode() == "offline" else "offline"
+        switch(requested)
+
+
+if __name__ == "__main__":
+    main()

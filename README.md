@@ -47,16 +47,16 @@ Ansible collections are required.
 Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core and network tooling, exploitation
-tooling, reverse-engineering tooling, web tooling, then Docker. Future optional
-playbooks that expose services, such as screen sharing, will not be included. All
-tasks target `localhost`; provisioning tasks use privilege escalation. They are
-idempotent so you can rerun them during initial provisioning or to apply a
-deliberate configuration change, such as opening another port. Rerunning the
-playbooks is not a recovery process for a machine that may have been compromised.
-Review the repository before running it with root privileges. Keep `local.yml`
-private; it is ignored by Git. Each playbook loads `local.yml` automatically,
-falling back to `local.yml.example` when it is absent. Nothing commits or pushes
-changes for you.
+tooling, reverse-engineering tooling, web tooling, Docker, and the optional
+offline-mirror sync. Future optional playbooks that expose services, such as
+screen sharing, will not be included. All tasks target `localhost`; provisioning
+tasks use privilege escalation. They are idempotent so you can rerun them during
+initial provisioning or to apply a deliberate configuration change, such as
+opening another port. Rerunning the playbooks is not a recovery process for a
+machine that may have been compromised. Review the repository before running it
+with root privileges. Keep `local.yml` private; it is ignored by Git. Each
+playbook loads `local.yml` automatically, falling back to `local.yml.example` when
+it is absent. Nothing commits or pushes changes for you.
 
 The preflight first requires more than 400 GB of free space on the filesystem
 containing `/srv`, the planned offline-mirror location. It then requests signed
@@ -94,6 +94,8 @@ ansible-playbook tooling-exploitation.yml --ask-become-pass
 ansible-playbook tooling-reversing.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
 ansible-playbook docker.yml --ask-become-pass
+ansible-playbook mirror-sync.yml --ask-become-pass
+ansible-playbook mirror-enable.yml --ask-become-pass
 ```
 
 ## Configuration
@@ -263,6 +265,92 @@ same revision of deburner at different times can install different versions.
 Ghidra, Binary Ninja Free and Burp are large downloads and consume several
 gigabytes after extraction. Provision them while the machine has Internet access.
 
+### Offline Debian mirror
+
+The offline mirror is disabled by default. To include synchronization in the
+normal `deburner.yml` run, set this in `local.yml` before provisioning:
+
+```yaml
+offline_mirror_enabled: true
+```
+
+When enabled, the final provisioning stage starts a large download. Keep the
+machine powered on, awake, and connected to the Internet until Ansible reports
+that both archive syncs and signature checks have completed. The initial sync can
+take several hours depending on the connection and storage speed. The default
+12-hour task limit can be changed with `offline_mirror_sync_timeout`; rerunning
+the sync resumes from the existing mirror rather than starting from nothing.
+
+You can also leave it disabled during the main run and start it separately:
+
+```sh
+ansible-playbook mirror-sync.yml --ask-become-pass \
+  --extra-vars offline_mirror_enabled=true
+```
+
+The role uses Debian's `debmirror` package to maintain two trees:
+
+- `/srv/deburner/mirror/debian` contains `trixie` and `trixie-updates`.
+- `/srv/deburner/mirror/debian-security` contains `trixie-security`.
+
+Both include `amd64` and architecture-independent binary packages from `main`,
+`contrib`, `non-free`, and `non-free-firmware`. Source packages, package-content
+indexes, Debian Installer images, and CD/DVD images are excluded by default
+because they are not needed to install packages on the burner. Set
+`offline_mirror_include_sources: true` or
+`offline_mirror_include_contents: true` before the initial sync if those files are
+needed. The sync checks existing package files and verifies Debian's signed
+Release metadata using the archive keyring shipped by Debian.
+
+The 400 GB free-space requirement leaves substantial room for metadata, mirror
+growth, containers, and challenge files. Debian's
+[`debmirror` size table](https://sources.debian.org/src/debmirror/1%3A2.49/mirror_size)
+dated 22 June 2026 lists approximately 123 GB of `trixie` `amd64` and
+architecture-independent package payload before security updates and metadata.
+Repository size changes over time, so the threshold is a safety margin rather
+than a guaranteed final size. Source packages need considerably more space.
+
+Synchronization does **not** change APT's active sources. Run the following only
+after the sync has completed and immediately before testing offline operation:
+
+```sh
+ansible-playbook mirror-enable.yml --ask-become-pass
+```
+
+The activation playbook verifies all three signed `InRelease` files and prepares
+two complete source directories under `/etc/deburner/apt`. Existing online source
+fragments are preserved in `sources-online`; the local `file:` definitions are
+written to `sources-offline`. It then replaces `/etc/apt/sources.list.d` with a
+symlink to the selected directory. A legacy `/etc/apt/sources.list`, when present,
+is moved into the online directory so it switches modes with the other sources.
+
+After selecting the offline directory, the playbook refreshes APT metadata and
+downloads a fresh copy of the `apt` package into a temporary cache. That final
+download proves package retrieval works using only the local mirror; it does not
+reinstall the package.
+
+After the activation playbook, `/usr/local/sbin/deburner-apt-mode` provides a
+direct way to change modes without rerunning Ansible:
+
+```sh
+deburner-apt-mode status
+sudo deburner-apt-mode offline
+sudo deburner-apt-mode online
+sudo deburner-apt-mode toggle
+```
+
+The small Python utility only changes which Ansible-prepared directory the
+`/etc/apt/sources.list.d` symlink points to. It serializes changes with a lock and
+runs `apt-get update` after switching. If the update fails, it restores the
+previous source directory automatically. The `status` command does not require
+root; changing modes does.
+
+Refresh the mirror shortly before disconnecting. Debian security metadata has an
+expiry time which APT continues to enforce; this project does not disable
+signature or expiry verification. The mirror covers Debian packages only. It
+does not contain upstream Docker packages, container images, Git repositories,
+Python package indexes, Ghidra, Binary Ninja, radare2, or Burp Suite.
+
 ## Modifications made
 
 | Area | Modification | Purpose / impact |
@@ -280,7 +368,8 @@ gigabytes after extraction. Provision them while the machine has Internet access
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; add stable commands and desktop launchers | Provide current native and Java reverse-engineering tools without accounts or stored license keys |
 | Web tooling | Resolve and install the current Burp Suite Community JAR with a command and desktop launcher | Provide a current account-free web proxy and testing toolkit |
-| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling and Docker playbooks with one command while retaining individual category entry points |
+| Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
+| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and optional mirror-sync playbooks with one command while retaining individual category entry points |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
 It has no output or forwarding chain, does not flush the global ruleset, and
@@ -352,20 +441,7 @@ not the end-of-event sanitization procedure.
   event-network restrictions. GNOME's supported desktop-sharing workflow uses
   RDP; a VNC-specific solution needs separate investigation. See
   [GNOME desktop sharing](https://help.gnome.org/gnome-help/sharing-desktop.html).
-- **Customizations / offline mirror:** implement a complete Debian 13 **amd64
-  package mirror**, including architecture-independent packages, all four
-  components (`main`, `contrib`, `non-free`, `non-free-firmware`), `trixie`,
-  `trixie-updates`, and `trixie-security`, under `/srv/deburner/mirror`. Source
-  packages can be included as an option; installing binary packages offline does
-  not require them. Use signed upstream metadata and local `file:` APT sources;
-  no inbound mirror server is needed. Synchronization and switching APT to offline
-  mode must be separate, explicit steps, with signature/hash verification and a
-  successful offline installation test before disconnecting. Account for security
-  metadata expiry without disabling signature verification. Do not assume a
-  512 GB system disk has enough free space: check current mirror size and allow
-  room for the OS, containers and challenges before syncing. This will cover
-  Debian packages, not PyPI, Git repositories, Docker images or other ecosystems.
-  [Debmirror](https://manpages.debian.org/trixie/debmirror/debmirror.1.en.html)
-  supports architecture, suite and component selection.
+- **Customizations:** personal shell, terminal, editor and GNOME preferences,
+  kept separate from the security and tooling roles.
 
 These categories are recorded requirements, not implemented playbooks yet.

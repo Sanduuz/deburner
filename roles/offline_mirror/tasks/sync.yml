@@ -1,0 +1,142 @@
+---
+- name: Validate offline mirror configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - offline_mirror_root is match('^/srv/[A-Za-z0-9._/-]+$')
+      - offline_mirror_minimum_free_bytes | int > 0
+      - offline_mirror_sync_timeout | int >= 3600
+      - offline_mirror_architectures == ['amd64']
+      - offline_mirror_components == ['main', 'contrib', 'non-free', 'non-free-firmware']
+      - offline_mirror_debian_suites == ['trixie', 'trixie-updates']
+      - offline_mirror_security_suites == ['trixie-security']
+      - offline_mirror_debian_host is match('^[a-z0-9.-]+$')
+      - offline_mirror_debian_remote_root == 'debian'
+      - offline_mirror_security_host is match('^[a-z0-9.-]+$')
+      - offline_mirror_security_remote_root == 'debian-security'
+      - offline_mirror_archive_keyring is match('^/[A-Za-z0-9._/-]+$')
+    fail_msg: This role supports the documented complete Debian 13 amd64 binary mirror layout only.
+
+- name: Announce the long-running mirror synchronization
+  ansible.builtin.debug:
+    msg: >-
+      Offline mirror synchronization is starting. Keep the machine powered on and
+      connected to the Internet until both archive runs finish. The initial sync
+      downloads a large amount of data and commonly takes several hours depending
+      on repository size, storage speed, and the Internet connection. Do not
+      suspend, reboot, or disconnect the machine during this task.
+
+- name: Install mirror synchronization packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - debian-archive-keyring
+      - debmirror
+      - gnupg
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the mirror root
+  ansible.builtin.file:
+    path: "{{ offline_mirror_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read available mirror filesystem space
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/df
+      - --block-size=1
+      - --output=avail
+      - "{{ offline_mirror_root }}"
+  register: offline_mirror_disk_space
+  changed_when: false
+
+- name: Require enough free space before synchronization
+  ansible.builtin.assert:
+    that:
+      - (offline_mirror_disk_space.stdout_lines[-1] | trim | int) > (offline_mirror_minimum_free_bytes | int)
+    fail_msg: >-
+      The filesystem containing {{ offline_mirror_root }} has
+      {{ ((offline_mirror_disk_space.stdout_lines[-1] | trim | int) / 1000000000) | round(1) }} GB free;
+      more than {{ ((offline_mirror_minimum_free_bytes | int) / 1000000000) | round(1) }} GB is required.
+
+- name: Synchronize the Debian 13 package archive
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['/usr/bin/debmirror',
+         '--method=https',
+         '--host=' + offline_mirror_debian_host,
+         '--root=' + offline_mirror_debian_remote_root,
+         '--dist=' + (offline_mirror_debian_suites | join(',')),
+         '--section=' + (offline_mirror_components | join(',')),
+         '--arch=' + (offline_mirror_architectures | join(',')),
+         '--keyring=' + offline_mirror_archive_keyring,
+         '--rsync-extra=none',
+         '--diff=use',
+         '--state-cache-days=1',
+         '--postcleanup',
+         '--checksums',
+         '--progress']
+        + (['--source'] if offline_mirror_include_sources | bool else ['--nosource'])
+        + (['--getcontents'] if offline_mirror_include_contents | bool else [])
+        + [offline_mirror_root + '/debian']
+      }}
+  async: "{{ offline_mirror_sync_timeout }}"
+  poll: 60
+  register: offline_mirror_debian_sync
+  changed_when: true
+
+- name: Synchronize the Debian 13 security archive
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['/usr/bin/debmirror',
+         '--method=https',
+         '--host=' + offline_mirror_security_host,
+         '--root=' + offline_mirror_security_remote_root,
+         '--dist=' + (offline_mirror_security_suites | join(',')),
+         '--section=' + (offline_mirror_components | join(',')),
+         '--arch=' + (offline_mirror_architectures | join(',')),
+         '--keyring=' + offline_mirror_archive_keyring,
+         '--rsync-extra=none',
+         '--diff=use',
+         '--state-cache-days=1',
+         '--postcleanup',
+         '--checksums',
+         '--progress']
+        + (['--source'] if offline_mirror_include_sources | bool else ['--nosource'])
+        + (['--getcontents'] if offline_mirror_include_contents | bool else [])
+        + [offline_mirror_root + '/debian-security']
+      }}
+  async: "{{ offline_mirror_sync_timeout }}"
+  poll: 60
+  register: offline_mirror_security_sync
+  changed_when: true
+
+- name: Verify synchronized Release signatures
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/gpgv
+      - --keyring
+      - "{{ offline_mirror_archive_keyring }}"
+      - "{{ item }}"
+  loop:
+    - "{{ offline_mirror_root }}/debian/dists/trixie/InRelease"
+    - "{{ offline_mirror_root }}/debian/dists/trixie-updates/InRelease"
+    - "{{ offline_mirror_root }}/debian-security/dists/trixie-security/InRelease"
+  changed_when: false
+
+- name: Report completed mirror synchronization
+  ansible.builtin.debug:
+    msg: >-
+      The online mirror sync completed and its Release signatures verified. APT
+      still uses its existing online sources. Run mirror-enable.yml explicitly
+      when you are ready to prepare the source layout, install the mode utility,
+      and switch APT to the local mirror.

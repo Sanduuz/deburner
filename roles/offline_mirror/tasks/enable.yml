@@ -1,0 +1,231 @@
+---
+- name: Validate offline mirror activation configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - offline_mirror_root is match('^/srv/[A-Za-z0-9._/-]+$')
+      - offline_mirror_architectures == ['amd64']
+      - offline_mirror_components == ['main', 'contrib', 'non-free', 'non-free-firmware']
+    fail_msg: This role supports the documented Debian 13 amd64 mirror layout only.
+
+- name: Check required local mirror metadata
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ offline_mirror_root }}/debian/dists/trixie/InRelease"
+    - "{{ offline_mirror_root }}/debian/dists/trixie-updates/InRelease"
+    - "{{ offline_mirror_root }}/debian-security/dists/trixie-security/InRelease"
+  register: offline_mirror_metadata
+
+- name: Require a complete synchronized mirror
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg | default(false)
+    fail_msg: "Required mirror metadata is missing: {{ item.item }}. Run mirror-sync.yml while online first."
+  loop: "{{ offline_mirror_metadata.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Verify local mirror Release signatures
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/gpgv
+      - --keyring
+      - "{{ offline_mirror_archive_keyring }}"
+      - "{{ item.item }}"
+  loop: "{{ offline_mirror_metadata.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: false
+
+- name: Create the deburner APT configuration directory
+  ansible.builtin.file:
+    path: /etc/deburner/apt
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Inspect the active APT source directory
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d
+    follow: false
+  register: offline_mirror_active_sources
+
+- name: Inspect the preserved online APT source directory
+  ansible.builtin.stat:
+    path: /etc/deburner/apt/sources-online
+    follow: false
+  register: offline_mirror_online_sources
+
+- name: Require a safe APT source layout
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          (offline_mirror_active_sources.stat.isdir | default(false))
+          and not (offline_mirror_active_sources.stat.islnk | default(false))
+          and not offline_mirror_online_sources.stat.exists
+        ) or (
+          not offline_mirror_active_sources.stat.exists
+          and not (offline_mirror_active_sources.stat.islnk | default(false))
+          and (offline_mirror_online_sources.stat.isdir | default(false))
+        ) or (
+          (offline_mirror_active_sources.stat.islnk | default(false))
+          and (offline_mirror_online_sources.stat.isdir | default(false))
+          and offline_mirror_active_sources.stat.lnk_source in
+          ['/etc/deburner/apt/sources-online', '/etc/deburner/apt/sources-offline']
+        )
+    fail_msg: >-
+      Refusing to rearrange an unexpected APT source layout. Expected an unmanaged
+      /etc/apt/sources.list.d directory, a staged sources-online directory, or a
+      deburner-managed sources.list.d symlink.
+
+- name: Preserve the online APT source directory
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mv
+      - /etc/apt/sources.list.d
+      - /etc/deburner/apt/sources-online
+  when:
+    - offline_mirror_active_sources.stat.isdir | default(false)
+    - not (offline_mirror_active_sources.stat.islnk | default(false))
+  changed_when: true
+
+- name: Create the offline APT source directory
+  ansible.builtin.file:
+    path: /etc/deburner/apt/sources-offline
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the offline APT source definition
+  ansible.builtin.template:
+    src: deburner-offline.sources.j2
+    dest: /etc/deburner/apt/sources-offline/deburner.sources
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Find unexpected offline APT source definitions
+  ansible.builtin.find:
+    paths: /etc/deburner/apt/sources-offline
+    recurse: false
+    file_type: any
+    patterns:
+      - '*.list'
+      - '*.sources'
+    excludes:
+      - deburner.sources
+  register: offline_mirror_unexpected_sources
+
+- name: Require the offline mode to contain only local mirror definitions
+  ansible.builtin.assert:
+    that:
+      - offline_mirror_unexpected_sources.matched == 0
+    fail_msg: >-
+      Unexpected APT source definitions exist in
+      /etc/deburner/apt/sources-offline. Remove them before enabling offline mode.
+
+- name: Point APT at the preserved online sources during setup
+  ansible.builtin.file:
+    src: /etc/deburner/apt/sources-online
+    dest: /etc/apt/sources.list.d
+    state: link
+  when: not (offline_mirror_active_sources.stat.islnk | default(false))
+
+- name: Reinspect the managed APT source link
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d
+    follow: false
+  register: offline_mirror_managed_sources
+
+- name: Require the managed link to select a known source directory
+  ansible.builtin.assert:
+    that:
+      - offline_mirror_managed_sources.stat.islnk | default(false)
+      - >-
+        offline_mirror_managed_sources.stat.lnk_source in
+        ['/etc/deburner/apt/sources-online', '/etc/deburner/apt/sources-offline']
+    fail_msg: >-
+      /etc/apt/sources.list.d is not a deburner-managed online/offline source link.
+
+- name: Inspect the legacy APT source file
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list
+    follow: false
+  register: offline_mirror_legacy_source
+
+- name: Inspect the preserved legacy APT source file
+  ansible.builtin.stat:
+    path: /etc/deburner/apt/sources-online/sources.list
+    follow: false
+  register: offline_mirror_preserved_legacy_source
+
+- name: Refuse conflicting legacy APT source files
+  ansible.builtin.assert:
+    that:
+      - not (offline_mirror_legacy_source.stat.exists and offline_mirror_preserved_legacy_source.stat.exists)
+    fail_msg: >-
+      Both /etc/apt/sources.list and its preserved online copy exist. Resolve the
+      conflict before enabling the offline mirror.
+
+- name: Preserve the legacy online APT source file
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mv
+      - /etc/apt/sources.list
+      - /etc/deburner/apt/sources-online/sources.list
+  when: offline_mirror_legacy_source.stat.exists
+  changed_when: true
+
+- name: Install the APT mirror mode utility
+  ansible.builtin.include_tasks: install-utility.yml
+
+- name: Switch APT to the local mirror
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/deburner-apt-mode
+      - offline
+  register: offline_mirror_activation
+  changed_when: "'Switched APT to offline mode.' in offline_mirror_activation.stdout"
+
+- name: Verify package retrieval from the local mirror
+  block:
+    - name: Create the offline package test cache
+      ansible.builtin.file:
+        path: /var/cache/deburner/offline-test/partial
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Test downloading a package exclusively from the local mirror
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/apt-get
+          - --download-only
+          - --reinstall
+          - --yes
+          - -o
+          - Dir::Cache::archives=/var/cache/deburner/offline-test
+          - install
+          - apt
+      changed_when: false
+  always:
+    - name: Remove the offline package test cache
+      ansible.builtin.file:
+        path: /var/cache/deburner/offline-test
+        state: absent
+
+- name: Report offline APT activation
+  ansible.builtin.debug:
+    msg: >-
+      APT now uses only the local file mirror. Use 'sudo deburner-apt-mode online'
+      to restore the preserved online sources, or 'sudo deburner-apt-mode toggle'
+      to switch between modes. Debian's normal signature and expiry checks remain
+      enabled.

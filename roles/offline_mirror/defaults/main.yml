@@ -1,0 +1,27 @@
+---
+offline_mirror_enabled: false
+offline_mirror_root: /srv/deburner/mirror
+offline_mirror_minimum_free_bytes: 400000000000
+offline_mirror_sync_timeout: 43200
+offline_mirror_archive_keyring: /usr/share/keyrings/debian-archive-keyring.gpg
+
+offline_mirror_architectures:
+  - amd64
+offline_mirror_components:
+  - main
+  - contrib
+  - non-free
+  - non-free-firmware
+offline_mirror_debian_suites:
+  - trixie
+  - trixie-updates
+offline_mirror_security_suites:
+  - trixie-security
+
+offline_mirror_debian_host: deb.debian.org
+offline_mirror_debian_remote_root: debian
+offline_mirror_security_host: security.debian.org
+offline_mirror_security_remote_root: debian-security
+
+offline_mirror_include_sources: false
+offline_mirror_include_contents: false

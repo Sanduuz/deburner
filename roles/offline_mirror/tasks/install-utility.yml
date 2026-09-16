@@ -1,0 +1,17 @@
+---
+- name: Create the deburner APT configuration directory
+  ansible.builtin.file:
+    path: /etc/deburner/apt
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the APT mirror mode utility
+  ansible.builtin.template:
+    src: deburner-apt-mode.py.j2
+    dest: /usr/local/sbin/deburner-apt-mode
+    owner: root
+    group: root
+    mode: '0755'
+    validate: /usr/bin/python3 -m py_compile %s

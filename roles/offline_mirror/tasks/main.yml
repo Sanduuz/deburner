@@ -1,0 +1,11 @@
+---
+- name: Explain that the optional mirror is disabled
+  ansible.builtin.debug:
+    msg: >-
+      Offline mirror synchronization is disabled. Set offline_mirror_enabled: true
+      in local.yml to include it in deburner.yml or mirror-sync.yml.
+  when: not offline_mirror_enabled | bool
+
+- name: Synchronize the offline mirror
+  ansible.builtin.include_tasks: sync.yml
+  when: offline_mirror_enabled | bool

@@ -1,0 +1,13 @@
+Types: deb
+URIs: file:{{ offline_mirror_root }}/debian
+Suites: {{ offline_mirror_debian_suites | join(' ') }}
+Components: {{ offline_mirror_components | join(' ') }}
+Architectures: {{ offline_mirror_architectures | join(' ') }}
+Signed-By: {{ offline_mirror_archive_keyring }}
+
+Types: deb
+URIs: file:{{ offline_mirror_root }}/debian-security
+Suites: {{ offline_mirror_security_suites | join(' ') }}
+Components: {{ offline_mirror_components | join(' ') }}
+Architectures: {{ offline_mirror_architectures | join(' ') }}
+Signed-By: {{ offline_mirror_archive_keyring }}

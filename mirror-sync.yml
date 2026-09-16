@@ -1,0 +1,10 @@
+---
+- name: Synchronize the optional offline Debian mirror
+  hosts: burner
+  become: true
+  gather_facts: true
+  vars_files:
+    - - local.yml
+      - local.yml.example
+  roles:
+    - offline_mirror
