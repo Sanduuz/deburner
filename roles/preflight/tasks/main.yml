@@ -1,0 +1,81 @@
+---
+- name: Validate preflight configuration
+  ansible.builtin.assert:
+    that:
+      - preflight_network_timeout | int >= 1
+      - preflight_network_timeout | int <= 120
+      - preflight_storage_path is match('^/')
+      - preflight_minimum_free_bytes | int > 0
+      - preflight_required_endpoints | type_debug == 'list'
+      - preflight_required_endpoints | length > 0
+    fail_msg: Review the preflight variables; one or more values are invalid.
+
+- name: Validate required endpoint definitions
+  ansible.builtin.assert:
+    that:
+      - item.name is string
+      - item.name | length > 0
+      - item.url is match('^https://')
+      - item.marker is string
+      - item.marker | length > 0
+    fail_msg: Every preflight endpoint needs a name, an HTTPS URL and a response marker.
+  loop: "{{ preflight_required_endpoints }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed endpoint') }}"
+
+- name: Check the provisioning storage path
+  ansible.builtin.stat:
+    path: "{{ preflight_storage_path }}"
+  register: preflight_storage_path_details
+
+- name: Require an existing storage directory
+  ansible.builtin.assert:
+    that:
+      - preflight_storage_path_details.stat.exists
+      - preflight_storage_path_details.stat.isdir | default(false)
+    fail_msg: "The preflight storage path {{ preflight_storage_path }} must be an existing directory."
+
+- name: Read available space on the provisioning filesystem
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/df
+      - --block-size=1
+      - --output=avail
+      - "{{ preflight_storage_path }}"
+  register: preflight_disk_space
+  changed_when: false
+
+- name: Record available provisioning space
+  ansible.builtin.set_fact:
+    preflight_available_bytes: "{{ preflight_disk_space.stdout_lines[-1] | trim | int }}"
+
+- name: Require more than the configured free space
+  ansible.builtin.assert:
+    that:
+      - (preflight_available_bytes | int) > (preflight_minimum_free_bytes | int)
+    fail_msg: >-
+      The filesystem containing {{ preflight_storage_path }} has
+      {{ ((preflight_available_bytes | int) / 1000000000) | round(1) }} GB free;
+      more than {{ ((preflight_minimum_free_bytes | int) / 1000000000) | round(1) }} GB is required.
+    success_msg: >-
+      The filesystem containing {{ preflight_storage_path }} has
+      {{ ((preflight_available_bytes | int) / 1000000000) | round(1) }} GB free.
+
+- name: Verify required provisioning endpoints
+  ansible.builtin.uri:
+    url: "{{ item.url }}"
+    method: GET
+    return_content: true
+    follow_redirects: safe
+    validate_certs: true
+    timeout: "{{ preflight_network_timeout }}"
+    status_code: 200
+    http_agent: deburner-ansible-preflight
+  register: preflight_endpoint_result
+  failed_when: >-
+    (preflight_endpoint_result.status | default(0) != 200) or
+    (item.marker not in (preflight_endpoint_result.content | default('')))
+  changed_when: false
+  loop: "{{ preflight_required_endpoints }}"
+  loop_control:
+    label: "{{ item.name }}"

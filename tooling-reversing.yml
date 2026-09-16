@@ -1,0 +1,16 @@
+---
+- name: Install reverse-engineering tooling
+  hosts: burner
+  become: true
+  gather_facts: true
+  vars_files:
+    - "{{ lookup('ansible.builtin.first_found', tooling_local_vars) }}"
+  vars:
+    tooling_local_vars:
+      files:
+        - local.yml
+        - local.yml.example
+      paths:
+        - "{{ playbook_dir }}"
+  roles:
+    - tooling_reversing

@@ -1,0 +1,7 @@
+---
+tooling_web_packages:
+  - openjdk-21-jre
+
+tooling_web_burp_releases_url: https://portswigger.net/burp/releases
+tooling_web_burp_download_url: https://portswigger.net/burp/releases/download
+tooling_web_burp_max_heap: 4g

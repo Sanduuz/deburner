@@ -1,5 +1,9 @@
 ---
 # Copy to local.yml. This file is ignored by Git.
+preflight_network_timeout: 15
+preflight_storage_path: /srv
+preflight_minimum_free_bytes: 400000000000
+
 hardening_upgrade_packages: true
 hardening_automatic_security_updates: false
 hardening_disable_ssh: true
@@ -13,3 +17,14 @@ hardening_allowed_udp_ports: []
 # the host; leave empty to use `sudo docker ...` instead.
 docker_group_users: []
 # docker_group_users: [your_username]
+
+# Package lists for the standard tooling playbooks can be replaced here. See the
+# role defaults for their complete values.
+# tooling_core_packages: []
+# tooling_network_packages: []
+# tooling_exploitation_packages: []
+# tooling_reversing_packages: []
+# tooling_web_packages: []
+
+# Burp Suite Community is started with this Java heap limit.
+tooling_web_burp_max_heap: 4g

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Burp Suite Community Edition
+Comment=Web security testing toolkit
+Exec=/usr/local/bin/burpsuite
+Icon=web-browser
+Terminal=false
+Categories=Network;

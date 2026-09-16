@@ -1,0 +1,246 @@
+---
+- name: Validate reverse-engineering tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_reversing_packages | type_debug == 'list'
+      - tooling_reversing_packages | length > 0
+      - tooling_reversing_ghidra_release_api is match('^https://api\.github\.com/')
+      - tooling_reversing_binary_ninja_release_api is match('^https://api\.github\.com/')
+      - tooling_reversing_radare2_release_api is match('^https://api\.github\.com/')
+    fail_msg: Review the reverse-engineering tooling variables; one or more values are invalid.
+
+- name: Install reverse-engineering runtime packages
+  ansible.builtin.apt:
+    name: "{{ tooling_reversing_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the system desktop launcher directory
+  ansible.builtin.file:
+    path: /usr/local/share/applications
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable Ghidra release
+  ansible.builtin.uri:
+    url: "{{ tooling_reversing_ghidra_release_api }}"
+    headers: "{{ tooling_reversing_github_api_headers }}"
+    return_content: true
+  register: tooling_reversing_ghidra_release
+  changed_when: false
+
+- name: Select the Ghidra release archive
+  ansible.builtin.set_fact:
+    tooling_reversing_ghidra_assets: >-
+      {{ tooling_reversing_ghidra_release.json.assets
+         | selectattr('name', 'match', '^ghidra_.*_PUBLIC_.*\.zip$')
+         | list }}
+
+- name: Validate the latest Ghidra release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_reversing_ghidra_assets | length == 1
+      - tooling_reversing_ghidra_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest Ghidra release does not contain one checksum-described public ZIP archive.
+
+- name: Define the current Ghidra artifact
+  ansible.builtin.set_fact:
+    tooling_reversing_ghidra_asset: "{{ tooling_reversing_ghidra_assets[0] }}"
+    tooling_reversing_ghidra_archive_dir: "{{ tooling_reversing_ghidra_assets[0].name | regex_replace('\\.zip$', '') }}"
+
+- name: Check whether the current Ghidra release is installed
+  ansible.builtin.stat:
+    path: "/opt/{{ tooling_reversing_ghidra_archive_dir }}/ghidraRun"
+  register: tooling_reversing_ghidra_executable
+
+- name: Install the current Ghidra release
+  when: not tooling_reversing_ghidra_executable.stat.exists
+  block:
+    - name: Download Ghidra
+      ansible.builtin.get_url:
+        url: "{{ tooling_reversing_ghidra_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_reversing_ghidra_asset.name }}"
+        checksum: "{{ tooling_reversing_ghidra_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract Ghidra under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_reversing_ghidra_asset.name }}"
+        dest: /opt
+        remote_src: true
+
+    - name: Remove the downloaded Ghidra archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_reversing_ghidra_asset.name }}"
+        state: absent
+
+- name: Create the stable Ghidra path
+  ansible.builtin.file:
+    src: "/opt/{{ tooling_reversing_ghidra_archive_dir }}"
+    dest: /opt/ghidra
+    state: link
+    force: true
+
+- name: Create the Ghidra command
+  ansible.builtin.file:
+    src: /opt/ghidra/ghidraRun
+    dest: /usr/local/bin/ghidra
+    state: link
+    force: true
+
+- name: Install the Ghidra desktop launcher
+  ansible.builtin.copy:
+    src: ghidra.desktop
+    dest: /usr/local/share/applications/ghidra.desktop
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read the latest stable Binary Ninja release
+  ansible.builtin.uri:
+    url: "{{ tooling_reversing_binary_ninja_release_api }}"
+    headers: "{{ tooling_reversing_github_api_headers }}"
+    return_content: true
+  register: tooling_reversing_binary_ninja_release
+  changed_when: false
+
+- name: Select the Binary Ninja Free release archive
+  ansible.builtin.set_fact:
+    tooling_reversing_binary_ninja_assets: >-
+      {{ tooling_reversing_binary_ninja_release.json.assets
+         | selectattr('name', 'equalto', 'binaryninja_free_linux.zip')
+         | list }}
+
+- name: Validate the latest Binary Ninja release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_reversing_binary_ninja_release.json.tag_name is match('^stable/[0-9.]+$')
+      - tooling_reversing_binary_ninja_assets | length == 1
+      - tooling_reversing_binary_ninja_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest Binary Ninja release does not contain the expected checksum-described Free Linux archive.
+
+- name: Define the current Binary Ninja artifact
+  ansible.builtin.set_fact:
+    tooling_reversing_binary_ninja_asset: "{{ tooling_reversing_binary_ninja_assets[0] }}"
+    tooling_reversing_binary_ninja_version: "{{ tooling_reversing_binary_ninja_release.json.tag_name | regex_replace('^stable/', '') }}"
+
+- name: Define the versioned Binary Ninja path
+  ansible.builtin.set_fact:
+    tooling_reversing_binary_ninja_install_dir: "/opt/binaryninja-free-{{ tooling_reversing_binary_ninja_version }}"
+
+- name: Check whether the current Binary Ninja Free release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_reversing_binary_ninja_install_dir }}/binaryninja/binaryninja"
+  register: tooling_reversing_binary_ninja_executable
+
+- name: Install the current Binary Ninja Free release
+  when: not tooling_reversing_binary_ninja_executable.stat.exists
+  block:
+    - name: Create the Binary Ninja version directory
+      ansible.builtin.file:
+        path: "{{ tooling_reversing_binary_ninja_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download Binary Ninja Free
+      ansible.builtin.get_url:
+        url: "{{ tooling_reversing_binary_ninja_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_reversing_binary_ninja_asset.name }}"
+        checksum: "{{ tooling_reversing_binary_ninja_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract Binary Ninja Free under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_reversing_binary_ninja_asset.name }}"
+        dest: "{{ tooling_reversing_binary_ninja_install_dir }}"
+        remote_src: true
+
+    - name: Remove the downloaded Binary Ninja archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_reversing_binary_ninja_asset.name }}"
+        state: absent
+
+- name: Create the stable Binary Ninja path
+  ansible.builtin.file:
+    src: "{{ tooling_reversing_binary_ninja_install_dir }}/binaryninja"
+    dest: /opt/binaryninja
+    state: link
+    force: true
+
+- name: Create the Binary Ninja command
+  ansible.builtin.file:
+    src: /opt/binaryninja/binaryninja
+    dest: /usr/local/bin/binaryninja
+    state: link
+    force: true
+
+- name: Install the Binary Ninja desktop launcher
+  ansible.builtin.copy:
+    src: binaryninja.desktop
+    dest: /usr/local/share/applications/binaryninja.desktop
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read the latest stable radare2 release
+  ansible.builtin.uri:
+    url: "{{ tooling_reversing_radare2_release_api }}"
+    headers: "{{ tooling_reversing_github_api_headers }}"
+    return_content: true
+  register: tooling_reversing_radare2_release
+  changed_when: false
+
+- name: Select the radare2 amd64 Debian package
+  ansible.builtin.set_fact:
+    tooling_reversing_radare2_assets: >-
+      {{ tooling_reversing_radare2_release.json.assets
+         | selectattr('name', 'match', '^radare2_.*_amd64\.deb$')
+         | list }}
+
+- name: Validate the latest radare2 release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_reversing_radare2_assets | length == 1
+      - tooling_reversing_radare2_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest radare2 release does not contain one checksum-described amd64 Debian package.
+
+- name: Define the current radare2 artifact
+  ansible.builtin.set_fact:
+    tooling_reversing_radare2_asset: "{{ tooling_reversing_radare2_assets[0] }}"
+
+- name: Download the current radare2 Debian package
+  ansible.builtin.get_url:
+    url: "{{ tooling_reversing_radare2_asset.browser_download_url }}"
+    dest: "/var/cache/deburner/{{ tooling_reversing_radare2_asset.name }}"
+    checksum: "{{ tooling_reversing_radare2_asset.digest }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Install the current radare2 Debian package
+  ansible.builtin.apt:
+    deb: "/var/cache/deburner/{{ tooling_reversing_radare2_asset.name }}"
+    state: present

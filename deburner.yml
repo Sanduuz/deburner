@@ -1,8 +1,26 @@
 ---
 # Standard burner provisioning, in dependency order. Keep optional features in
 # their own playbooks so running this file does not expose additional services.
+- name: Verify provisioning network access
+  ansible.builtin.import_playbook: preflight.yml
+
 - name: Apply the hardening baseline
   ansible.builtin.import_playbook: hardening.yml
+
+- name: Install core workstation tooling
+  ansible.builtin.import_playbook: tooling-core.yml
+
+- name: Install network and VPN tooling
+  ansible.builtin.import_playbook: tooling-network.yml
+
+- name: Install exploitation and debugging tooling
+  ansible.builtin.import_playbook: tooling-exploitation.yml
+
+- name: Install reverse-engineering tooling
+  ansible.builtin.import_playbook: tooling-reversing.yml
+
+- name: Install web security tooling
+  ansible.builtin.import_playbook: tooling-web.yml
 
 - name: Install Docker tooling
   ansible.builtin.import_playbook: docker.yml

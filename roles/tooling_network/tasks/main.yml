@@ -1,0 +1,22 @@
+---
+- name: Validate the network package list
+  ansible.builtin.assert:
+    that:
+      - tooling_network_packages | type_debug == 'list'
+      - tooling_network_packages | length > 0
+      - tooling_network_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_network_packages | length
+    fail_msg: tooling_network_packages must be a non-empty list of Debian package names.
+
+- name: Keep unprivileged packet capture disabled
+  ansible.builtin.debconf:
+    name: wireshark-common
+    question: wireshark-common/install-setuid
+    value: 'false'
+    vtype: boolean
+
+- name: Install network and VPN packages
+  ansible.builtin.apt:
+    name: "{{ tooling_network_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Binary Ninja Free
+Comment=Binary analysis platform
+Exec=/usr/local/bin/binaryninja
+Icon=applications-development
+Terminal=false
+Categories=Development;Debugger;

@@ -1,0 +1,20 @@
+---
+preflight_network_timeout: 15
+preflight_storage_path: /srv
+preflight_minimum_free_bytes: 400000000000
+
+# Each marker confirms that HTTPS reached the intended service rather than a
+# captive portal or unrelated proxy response.
+preflight_required_endpoints:
+  - name: Debian package repository
+    url: https://deb.debian.org/debian/dists/trixie/InRelease
+    marker: 'Codename: trixie'
+  - name: Docker package repository
+    url: https://download.docker.com/linux/debian/dists/trixie/InRelease
+    marker: 'Origin: Docker'
+  - name: GitHub release API
+    url: https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest
+    marker: '"tag_name"'
+  - name: PortSwigger release service
+    url: https://portswigger.net/burp/releases
+    marker: 'Burp Suite Releases'

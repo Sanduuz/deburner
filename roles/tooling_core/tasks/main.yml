@@ -1,0 +1,15 @@
+---
+- name: Validate the core package list
+  ansible.builtin.assert:
+    that:
+      - tooling_core_packages | type_debug == 'list'
+      - tooling_core_packages | length > 0
+      - tooling_core_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_core_packages | length
+    fail_msg: tooling_core_packages must be a non-empty list of Debian package names.
+
+- name: Install core workstation packages
+  ansible.builtin.apt:
+    name: "{{ tooling_core_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600

@@ -1,0 +1,93 @@
+---
+- name: Validate web tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_web_packages | type_debug == 'list'
+      - tooling_web_packages | length > 0
+      - tooling_web_burp_releases_url is match('^https://portswigger\.net/')
+      - tooling_web_burp_download_url is match('^https://portswigger\.net/')
+      - tooling_web_burp_max_heap is match('^[1-9][0-9]*[mMgG]$')
+    fail_msg: Review the web tooling variables; one or more values are invalid.
+
+- name: Install the web tooling runtime
+  ansible.builtin.apt:
+    name: "{{ tooling_web_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the system desktop launcher directory
+  ansible.builtin.file:
+    path: /usr/local/share/applications
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read PortSwigger's release list
+  ansible.builtin.uri:
+    url: "{{ tooling_web_burp_releases_url }}"
+    return_content: true
+  register: tooling_web_burp_releases
+  changed_when: false
+
+- name: Find the current Burp Suite desktop version
+  ansible.builtin.set_fact:
+    tooling_web_burp_versions: >-
+      {{ tooling_web_burp_releases.content
+         | regex_findall('Professional / Community ([0-9]+(?:\.[0-9]+)+)') }}
+
+- name: Validate the current Burp Suite version
+  ansible.builtin.assert:
+    that:
+      - tooling_web_burp_versions | length > 0
+      - tooling_web_burp_versions[0] is match('^[0-9]{4}\.[0-9.]+$')
+    fail_msg: PortSwigger's release page did not contain a recognizable Professional / Community version.
+
+- name: Define the current Burp Suite artifact
+  ansible.builtin.set_fact:
+    tooling_web_burp_version: "{{ tooling_web_burp_versions[0] }}"
+    tooling_web_burp_jar: "/opt/burpsuite-community-{{ tooling_web_burp_versions[0] }}/burpsuite-community.jar"
+
+- name: Create the versioned Burp Suite directory
+  ansible.builtin.file:
+    path: "{{ tooling_web_burp_jar | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the current Burp Suite Community JAR
+  ansible.builtin.get_url:
+    url: "{{ tooling_web_burp_download_url }}?product=desktop&version={{ tooling_web_burp_version }}&type=Jar"
+    dest: "{{ tooling_web_burp_jar }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Create the stable Burp Suite path
+  ansible.builtin.file:
+    src: "{{ tooling_web_burp_jar | dirname }}"
+    dest: /opt/burpsuite-community
+    state: link
+    force: true
+
+- name: Install the Burp Suite command
+  ansible.builtin.template:
+    src: burpsuite.sh.j2
+    dest: /usr/local/bin/burpsuite
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the Burp Suite desktop launcher
+  ansible.builtin.copy:
+    src: burpsuite.desktop
+    dest: /usr/local/share/applications/burpsuite.desktop
+    owner: root
+    group: root
+    mode: '0644'
