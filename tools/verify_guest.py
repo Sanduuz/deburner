@@ -308,6 +308,48 @@ def verify_c2_staging() -> None:
     )
 
 
+def verify_provision_manifest() -> None:
+    file_exists("/usr/local/sbin/deburner-provision-manifest", executable=True)
+    manifest_path = Path("/var/lib/deburner/provision-manifest.json")
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        record(False, "provisioning manifest is readable", str(error))
+        return
+
+    record(manifest.get("schema_version") == 1, "provisioning manifest schema is supported")
+    record(isinstance(manifest.get("generated_at"), str), "provisioning manifest is dated")
+
+    platform_data = manifest.get("platform", {})
+    record(platform_data.get("id") == "debian", "manifest records Debian")
+    record(platform_data.get("version_id") == "13", "manifest records Debian 13")
+    record(platform_data.get("architecture") == "x86_64", "manifest records amd64")
+
+    packages = manifest.get("debian_packages", {})
+    for package in ["ansible", "docker-ce", "metasploit-framework"]:
+        record(package in packages, f"manifest records package: {package}")
+
+    commands = manifest.get("local_commands", {})
+    for command in ["burpsuite", "sliver-server", "stegsolve"]:
+        record(command in commands, f"manifest records local command: {command}")
+
+    opt_entries = manifest.get("opt_entries", {})
+    for entry in ["burpsuite-community", "sliver", "stegsolve"]:
+        record(entry in opt_entries, f"manifest records /opt entry: {entry}")
+
+    docker = manifest.get("docker", {})
+    record(docker.get("available") is True, "manifest records Docker availability")
+    record(docker.get("daemon_reachable") is True, "manifest records Docker daemon access")
+    images = docker.get("images", [])
+    tags = {
+        tag for image in images if isinstance(image, dict) for tag in image.get("repo_tags", [])
+    }
+    record(
+        any(tag.startswith("ghcr.io/shell-dot/tuoni/server:") for tag in tags),
+        "manifest records the staged Tuoni server image",
+    )
+
+
 def verify_test_profile() -> None:
     try:
         profile = json.loads(Path("/opt/deburner/.test-profile.json").read_text())
@@ -358,6 +400,7 @@ def main() -> int:
     verify_customization()
     verify_tooling()
     verify_c2_staging()
+    verify_provision_manifest()
     verify_test_profile()
     print(f"\nVerification summary: {len(PASSES)} passed, {len(FAILURES)} failed")
     if FAILURES:

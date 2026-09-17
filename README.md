@@ -50,7 +50,8 @@ playbooks in dependency order: hardening, core, network, pivoting, analysis,
 steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
 reverse-engineering tooling, web tooling, SecLists, Docker, C2 tooling, optional
 BloodHound staging, user and desktop customizations, and the optional
-offline-mirror sync. Optional features remain disabled unless selected in
+offline-mirror sync. It then writes a provisioning manifest describing the
+resulting installation. Optional features remain disabled unless selected in
 `local.yml`. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
 you can rerun them during initial provisioning or to apply a deliberate
@@ -265,6 +266,7 @@ ansible-playbook tooling-bloodhound.yml --ask-become-pass \
 ansible-playbook customization.yml --ask-become-pass
 ansible-playbook mirror-sync.yml --ask-become-pass
 ansible-playbook mirror-enable.yml --ask-become-pass
+ansible-playbook provision-manifest.yml --ask-become-pass
 ```
 
 ## Configuration
@@ -801,6 +803,34 @@ Tuoni source or container images, zsteg, StegSolve, BloodHound container images,
 ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or
 SecLists.
 
+### Provisioning manifest
+
+The final standard provisioning stage writes
+`/var/lib/deburner/provision-manifest.json`. It records the Debian release,
+architecture and kernel, the repository revision when Git metadata is available,
+every installed Debian package and version, immediate entries under `/opt`,
+commands under `/usr/local/bin`, installed Rust toolchains, and the IDs, tags and
+digests of locally available Docker images.
+
+The manifest deliberately excludes host and user names, environment variables,
+configuration contents and credentials. It is an inventory rather than a
+software bill of materials or proof that downloaded software is trustworthy.
+The generator preserves the file and its timestamp when the collected state has
+not changed, which keeps a repeated provisioning run idempotent.
+
+To refresh the inventory after a deliberate installation change, run the
+playbook again from the repository checkout:
+
+```sh
+ansible-playbook provision-manifest.yml --ask-become-pass
+```
+
+Inspect the result with:
+
+```sh
+python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
+```
+
 ## Modifications made
 
 | Area | Modification | Purpose / impact |
@@ -828,8 +858,9 @@ SecLists.
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
-| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2 and configuration-gated BloodHound and mirror stages with one command while retaining individual category entry points |
-| Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner locally without changing it or requiring Internet access |
+| Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
+| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, and inventory generation with one command while retaining individual category entry points |
+| Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner and its provisioning manifest locally without changing it or requiring Internet access |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
 It has no output or forwarding chain, does not flush the global ruleset, and
@@ -864,9 +895,10 @@ ansible-playbook verify.yml
 `verify.yml` is deliberately separate from `deburner.yml`; provisioning does not
 run it automatically. It checks the supported platform, services, firewall, SSH
 exposure, AppArmor, sysctls, Docker plugins, sudo policy, GNOME preferences,
-managed user files, installed commands, and optional mirror metadata. It does not
-change configuration or require Internet access, so it remains useful after the
-machine has been disconnected. It stops with the failed check and prints a
+managed user files, installed commands, optional mirror metadata, and selected
+expected entries in the provisioning manifest. It does not change configuration
+or require Internet access, so it remains useful after the machine has been
+disconnected. It stops with the failed check and prints a
 success message only after every check passes. No become-password prompt is
 needed because provisioning grants the selected desktop user passwordless sudo;
 failure to become root therefore also identifies a broken sudo configuration.
@@ -882,6 +914,7 @@ sudo apt-config dump
 sudo docker info
 sudo docker compose version
 sudo docker buildx version
+python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 command -v git rg python3 pipx go rustup rustc rust-analyzer cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
 command -v chisel sshuttle ligolo-agent ligolo-proxy
 command -v sliver-client sliver-server msfconsole msfvenom tuoni

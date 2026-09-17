@@ -116,6 +116,8 @@ verification_required_system_files:
   - /opt/ysoserial/ysoserial-all.jar
   - /opt/zsteg/bin/zsteg
   - /usr/share/seclists/README.md
+  - /usr/local/sbin/deburner-provision-manifest
+  - /var/lib/deburner/provision-manifest.json
   - /srv/tuoni/tuoni
 
 verification_required_user_files:

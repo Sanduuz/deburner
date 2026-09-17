@@ -1,0 +1,52 @@
+---
+- name: Validate provisioning manifest configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - provision_manifest_command == '/usr/local/sbin/deburner-provision-manifest'
+      - provision_manifest_output == '/var/lib/deburner/provision-manifest.json'
+    fail_msg: Review the provisioning manifest variables; one or more values are invalid.
+
+- name: Create the deburner state directory
+  ansible.builtin.file:
+    path: /var/lib/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the provisioning manifest generator
+  ansible.builtin.template:
+    src: deburner-provision-manifest.py.j2
+    dest: "{{ provision_manifest_command }}"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Record the provisioned system inventory
+  ansible.builtin.command:
+    argv:
+      - "{{ provision_manifest_command }}"
+      - --output
+      - "{{ provision_manifest_output }}"
+      - --source
+      - "{{ playbook_dir }}"
+  register: provision_manifest_result
+  changed_when: provision_manifest_result.stdout | trim == 'changed'
+
+- name: Inspect the provisioning manifest
+  ansible.builtin.stat:
+    path: "{{ provision_manifest_output }}"
+  register: provision_manifest_file
+
+- name: Require a public root-owned provisioning manifest
+  ansible.builtin.assert:
+    that:
+      - provision_manifest_file.stat.exists
+      - provision_manifest_file.stat.isreg
+      - provision_manifest_file.stat.pw_name == 'root'
+      - provision_manifest_file.stat.gr_name == 'root'
+      - provision_manifest_file.stat.mode == '0644'
+    fail_msg: The provisioning manifest was not created with the expected ownership and mode.

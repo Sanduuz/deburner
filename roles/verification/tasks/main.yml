@@ -278,6 +278,39 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Read the provisioning manifest
+  ansible.builtin.slurp:
+    src: /var/lib/deburner/provision-manifest.json
+  register: verification_manifest_file
+
+- name: Decode the provisioning manifest
+  ansible.builtin.set_fact:
+    verification_manifest: "{{ verification_manifest_file.content | b64decode | from_json }}"
+
+- name: Require a valid provisioning manifest
+  ansible.builtin.assert:
+    that:
+      - verification_manifest.schema_version == 1
+      - verification_manifest.generated_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T')
+      - verification_manifest.platform.id == 'debian'
+      - verification_manifest.platform.version_id == '13'
+      - verification_manifest.platform.architecture == 'x86_64'
+      - verification_manifest.debian_packages | type_debug == 'dict'
+      - "'ansible' in verification_manifest.debian_packages"
+      - "'docker-ce' in verification_manifest.debian_packages"
+      - verification_manifest.docker.available | bool
+      - verification_manifest.docker.daemon_reachable | bool
+      - verification_manifest.docker.images | type_debug == 'list'
+      - verification_manifest.local_commands | type_debug == 'dict'
+      - "'burpsuite' in verification_manifest.local_commands"
+      - "'sliver-server' in verification_manifest.local_commands"
+      - "'stegsolve' in verification_manifest.local_commands"
+      - verification_manifest.opt_entries | type_debug == 'dict'
+      - "'burpsuite-community' in verification_manifest.opt_entries"
+      - "'sliver' in verification_manifest.opt_entries"
+      - "'stegsolve' in verification_manifest.opt_entries"
+    fail_msg: The provisioning manifest is missing expected inventory data.
+
 - name: Inspect required user files
   ansible.builtin.stat:
     path: "{{ verification_home }}/{{ item }}"

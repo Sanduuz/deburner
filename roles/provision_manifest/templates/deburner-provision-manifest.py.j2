@@ -1,0 +1,211 @@
+#!/usr/bin/python3
+"""Create a deterministic inventory of the provisioned burner."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import shutil
+import subprocess
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+def run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        arguments,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def read_os_release() -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
+        if "=" not in line or line.startswith("#"):
+            continue
+        key, value = line.split("=", maxsplit=1)
+        values[key] = value.strip().strip('"')
+    return values
+
+
+def installed_packages() -> dict[str, str]:
+    result = run(
+        [
+            "dpkg-query",
+            "-W",
+            "-f=${db:Status-Abbrev}\\t${binary:Package}\\t${Version}\\n",
+        ]
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"dpkg-query failed: {result.stderr.strip()}")
+
+    packages: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        status, name, version = line.split("\t", maxsplit=2)
+        if status.startswith("ii "):
+            packages[name] = version
+    return dict(sorted(packages.items()))
+
+
+def safe_path(value: str) -> str:
+    private_prefixes = ("/home/", "/root/", "/run/user/")
+    if value.startswith(private_prefixes) or "/home/" in value:
+        return "<redacted-user-path>"
+    return value
+
+
+def filesystem_entries(root: Path) -> dict[str, dict[str, str]]:
+    if not root.is_dir():
+        return {}
+
+    entries: dict[str, dict[str, str]] = {}
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+        if path.is_symlink():
+            entries[path.name] = {
+                "kind": "symlink",
+                "target": safe_path(os.readlink(path)),
+                "resolved_target": safe_path(str(path.resolve(strict=False))),
+            }
+        elif path.is_dir():
+            entries[path.name] = {"kind": "directory"}
+        elif path.is_file():
+            entries[path.name] = {"kind": "file"}
+        else:
+            entries[path.name] = {"kind": "other"}
+    return entries
+
+
+def repository_revision(source: Path | None) -> str | None:
+    if source is None:
+        return None
+    result = run(["git", "-C", str(source), "rev-parse", "--verify", "HEAD"])
+    if result.returncode != 0:
+        return None
+    revision = result.stdout.strip()
+    if len(revision) == 40 and all(character in "0123456789abcdef" for character in revision):
+        return revision
+    return None
+
+
+def docker_inventory() -> dict[str, Any]:
+    if shutil.which("docker") is None:
+        return {"available": False, "daemon_reachable": False, "images": []}
+
+    image_ids = run(["docker", "image", "ls", "--quiet", "--no-trunc"])
+    if image_ids.returncode != 0:
+        return {"available": True, "daemon_reachable": False, "images": []}
+
+    identifiers = sorted(set(image_ids.stdout.splitlines()))
+    if not identifiers:
+        return {"available": True, "daemon_reachable": True, "images": []}
+
+    inspected = run(["docker", "image", "inspect", *identifiers])
+    if inspected.returncode != 0:
+        raise RuntimeError(f"docker image inspect failed: {inspected.stderr.strip()}")
+
+    images = []
+    for image in json.loads(inspected.stdout):
+        images.append(
+            {
+                "id": image["Id"],
+                "repo_digests": sorted(image.get("RepoDigests") or []),
+                "repo_tags": sorted(image.get("RepoTags") or []),
+            }
+        )
+    images.sort(key=lambda image: image["id"])
+    return {"available": True, "daemon_reachable": True, "images": images}
+
+
+def rust_toolchains() -> list[str]:
+    root = Path("/opt/rustup/toolchains")
+    if not root.is_dir():
+        return []
+    return sorted(path.name for path in root.iterdir() if path.is_dir())
+
+
+def collect(source: Path | None) -> dict[str, Any]:
+    os_release = read_os_release()
+    return {
+        "schema_version": 1,
+        "platform": {
+            "architecture": platform.machine(),
+            "codename": os_release.get("VERSION_CODENAME"),
+            "id": os_release.get("ID"),
+            "kernel": platform.release(),
+            "version_id": os_release.get("VERSION_ID"),
+        },
+        "deburner": {"repository_revision": repository_revision(source)},
+        "debian_packages": installed_packages(),
+        "docker": docker_inventory(),
+        "local_commands": filesystem_entries(Path("/usr/local/bin")),
+        "opt_entries": filesystem_entries(Path("/opt")),
+        "rust_toolchains": rust_toolchains(),
+    }
+
+
+def load_existing(output: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(output.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    value.pop("generated_at", None)
+    return value
+
+
+def write_atomic(output: Path, manifest: dict[str, Any]) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            json.dump(manifest, temporary, indent=2, sort_keys=True)
+            temporary.write("\n")
+        os.chmod(temporary_name, 0o644)
+        os.replace(temporary_name, output)
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source", type=Path)
+    arguments = parser.parse_args()
+    if not arguments.output.is_absolute():
+        parser.error("--output must be an absolute path")
+    if arguments.source is not None and not arguments.source.is_absolute():
+        parser.error("--source must be an absolute path")
+    return arguments
+
+
+def main() -> int:
+    arguments = parse_args()
+    manifest = collect(arguments.source)
+    if load_existing(arguments.output) == manifest:
+        print("unchanged")
+        return 0
+
+    manifest["generated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    write_atomic(arguments.output, manifest)
+    print("changed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,3 @@
+---
+provision_manifest_command: /usr/local/sbin/deburner-provision-manifest
+provision_manifest_output: /var/lib/deburner/provision-manifest.json

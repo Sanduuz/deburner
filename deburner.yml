@@ -54,3 +54,6 @@
 
 - name: Synchronize the optional offline Debian mirror
   ansible.builtin.import_playbook: mirror-sync.yml
+
+- name: Record the provisioned system inventory
+  ansible.builtin.import_playbook: provision-manifest.yml
