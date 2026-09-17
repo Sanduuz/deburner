@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import codecs
 import hashlib
 import json
 import os
@@ -16,7 +17,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import BinaryIO, NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -37,6 +38,8 @@ REQUIRED_COMMANDS = (
 )
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 MAX_CHECKSUM_MANIFEST_SIZE = 1024 * 1024
+MAX_GUEST_LOG_SIZE = 64 * 1024 * 1024
+GUEST_LOG_DIRECTORY = "/var/log/deburner-test"
 
 
 class VmError(RuntimeError):
@@ -55,6 +58,7 @@ class Config:
     memory_mib: int
     vcpus: int
     disk_gib: int
+    bloodhound_enabled: bool
 
     @property
     def state_dir(self) -> Path:
@@ -483,6 +487,10 @@ def create_source_iso(config: Config) -> None:
         "# Generated only for the disposable integration-test guest.\n"
         "customization_user: debian\n"
         "offline_mirror_enabled: false\n"
+        f"tooling_bloodhound_enabled: {str(config.bloodhound_enabled).lower()}\n"
+    )
+    (config.source_tree_path / ".test-profile.json").write_text(
+        json.dumps({"bloodhound_enabled": config.bloodhound_enabled}, sort_keys=True) + "\n"
     )
     run(
         [
@@ -626,6 +634,69 @@ def guest_write_file(config: Config, destination: str, content: bytes) -> None:
         )
 
 
+def guest_open_file(config: Config, path: str, mode: str) -> int:
+    response = agent_command(
+        config,
+        {
+            "execute": "guest-file-open",
+            "arguments": {"path": path, "mode": mode},
+        },
+    )
+    if not isinstance(response, int):
+        raise VmError(f"The QEMU guest agent did not open {path}.")
+    return response
+
+
+def guest_close_file(config: Config, handle: int) -> None:
+    agent_command(
+        config,
+        {"execute": "guest-file-close", "arguments": {"handle": handle}},
+    )
+
+
+def guest_read_chunk(config: Config, handle: int, count: int = 32 * 1024) -> tuple[bytes, bool]:
+    response = agent_command(
+        config,
+        {
+            "execute": "guest-file-read",
+            "arguments": {"handle": handle, "count": count},
+        },
+    )
+    if not isinstance(response, dict):
+        raise VmError("The QEMU guest agent returned invalid file data.")
+    returned_count = response.get("count")
+    encoded = response.get("buf-b64", "")
+    eof = response.get("eof", False)
+    if (
+        not isinstance(returned_count, int)
+        or not isinstance(encoded, str)
+        or not isinstance(eof, bool)
+    ):
+        raise VmError("The QEMU guest agent returned invalid file data.")
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise VmError("The QEMU guest agent returned invalid base64 file data.") from error
+    if len(content) != returned_count:
+        raise VmError("The QEMU guest agent returned an inconsistent file byte count.")
+    return content, eof
+
+
+def guest_read_file(config: Config, path: str) -> bytes:
+    handle = guest_open_file(config, path, "r")
+    content = bytearray()
+    try:
+        while True:
+            chunk, eof = guest_read_chunk(config, handle)
+            content.extend(chunk)
+            if len(content) > MAX_GUEST_LOG_SIZE:
+                raise VmError(f"Guest log {path} exceeds the 64 MiB safety limit.")
+            if eof:
+                return bytes(content)
+    finally:
+        guest_close_file(config, handle)
+
+
 def refresh_source(config: Config) -> None:
     """Refresh a preserved VM from the public working tree through QGA."""
     validate_config(config)
@@ -696,6 +767,110 @@ def guest_exec(
     raise VmError(f"Guest command {path} timed out after {timeout} seconds.")
 
 
+def guest_exec_streamed(
+    config: Config,
+    label: str,
+    path: str,
+    arguments: list[str] | None = None,
+    *,
+    environment: dict[str, str] | None = None,
+    timeout: int = 300,
+) -> tuple[int, str, str, Path]:
+    """Run a guest command and stream its combined output through a QGA file handle."""
+    config.results_dir.mkdir(parents=True, exist_ok=True)
+    host_log_path = config.results_dir / f"{label}.log"
+    metadata_path = config.results_dir / f"{label}.json"
+    guest_log_path = f"{GUEST_LOG_DIRECTORY}/{label}.log"
+    require_guest_command(config, "/usr/bin/mkdir", ["-p", GUEST_LOG_DIRECTORY])
+    guest_write_file(config, guest_log_path, b"")
+    log_handle = guest_open_file(config, guest_log_path, "r")
+
+    command_arguments = [
+        "/opt/deburner/tools/run_logged.py",
+        guest_log_path,
+        path,
+        *(arguments or []),
+    ]
+    request_arguments: dict[str, object] = {
+        "path": "/usr/bin/python3",
+        "arg": command_arguments,
+        "capture-output": True,
+    }
+    if environment:
+        request_arguments["env"] = [f"{key}={value}" for key, value in sorted(environment.items())]
+    response = agent_command(
+        config,
+        {"execute": "guest-exec", "arguments": request_arguments},
+    )
+    if not isinstance(response, dict) or not isinstance(response.get("pid"), int):
+        guest_close_file(config, log_handle)
+        raise VmError("The QEMU guest agent did not return a process ID.")
+    pid = response["pid"]
+    deadline = time.monotonic() + timeout
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    streamed_bytes = 0
+
+    def drain(output: BinaryIO) -> None:
+        nonlocal streamed_bytes
+        while True:
+            chunk, eof = guest_read_chunk(config, log_handle)
+            if chunk:
+                streamed_bytes += len(chunk)
+                if streamed_bytes > MAX_GUEST_LOG_SIZE:
+                    raise VmError(f"Guest log {guest_log_path} exceeds the 64 MiB safety limit.")
+                output.write(chunk)
+                rendered = decoder.decode(chunk)
+                if rendered:
+                    sys.stdout.write(rendered)
+                    sys.stdout.flush()
+            if eof:
+                return
+
+    exit_code: int | None = None
+    wrapper_stdout = ""
+    wrapper_stderr = ""
+    try:
+        with host_log_path.open("wb") as output:
+            while time.monotonic() < deadline:
+                drain(output)
+                status = agent_command(
+                    config,
+                    {"execute": "guest-exec-status", "arguments": {"pid": pid}},
+                )
+                if not isinstance(status, dict):
+                    raise VmError("The QEMU guest agent returned an invalid process status.")
+                if status.get("exited"):
+                    drain(output)
+                    if status.get("out-truncated") or status.get("err-truncated"):
+                        raise VmError("The QEMU guest agent truncated runner output.")
+                    status_code = status.get("exitcode")
+                    if not isinstance(status_code, int):
+                        signal = status.get("signal", "unknown")
+                        raise VmError(f"Guest command terminated by signal {signal}.")
+                    exit_code = status_code
+                    wrapper_stdout = decode_agent_output(status.get("out-data"), "stdout")
+                    wrapper_stderr = decode_agent_output(status.get("err-data"), "stderr")
+                    break
+                time.sleep(0.5)
+            else:
+                raise VmError(f"Guest command {path} timed out after {timeout} seconds.")
+            remainder = decoder.decode(b"", final=True)
+            if remainder:
+                sys.stdout.write(remainder)
+                sys.stdout.flush()
+    finally:
+        guest_close_file(config, log_handle)
+
+    if exit_code is None:
+        raise VmError(f"Guest command {path} did not return an exit code.")
+    if wrapper_stdout or wrapper_stderr:
+        details = wrapper_stderr or wrapper_stdout
+        raise VmError(f"Guest logging runner produced unexpected output: {details.strip()}")
+    metadata_path.write_text(json.dumps({"exit_code": exit_code}, indent=2, sort_keys=True) + "\n")
+    stdout = host_log_path.read_text(errors="replace")
+    return exit_code, stdout, "", host_log_path
+
+
 def require_guest_command(
     config: Config,
     path: str,
@@ -737,8 +912,9 @@ def provision_guest(config: Config, *, idempotence: bool = False) -> None:
     validate_marker(config)
     label = "idempotence" if idempotence else "provision"
     print(f"Running deburner.yml inside the guest ({label})...", flush=True)
-    exit_code, stdout, stderr = guest_exec(
+    exit_code, stdout, stderr, log_path = guest_exec_streamed(
         config,
+        label,
         "/usr/bin/ansible-playbook",
         [
             "--inventory",
@@ -752,10 +928,10 @@ def provision_guest(config: Config, *, idempotence: bool = False) -> None:
             "HOME": "/root",
             "LANG": "C.UTF-8",
             "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "PYTHONUNBUFFERED": "1",
         },
         timeout=14_400,
     )
-    log_path = write_result(config, label, stdout, stderr, exit_code)
     if exit_code != 0:
         details = (stderr or stdout or "Ansible failed").strip().splitlines()[-1]
         raise VmError(f"Guest provisioning failed; see {log_path}: {details}")
@@ -786,8 +962,9 @@ def verify(config: Config, *, label: str = "verify") -> None:
         raise VmError(f"Domain {config.name!r} is not running.")
     validate_marker(config)
     print("Running the read-only verification playbook inside the guest...", flush=True)
-    playbook_exit, playbook_stdout, playbook_stderr = guest_exec(
+    playbook_exit, playbook_stdout, _playbook_stderr, playbook_log = guest_exec_streamed(
         config,
+        f"{label}-playbook",
         "/usr/bin/ansible-playbook",
         [
             "--inventory",
@@ -800,11 +977,9 @@ def verify(config: Config, *, label: str = "verify") -> None:
             "HOME": "/root",
             "LANG": "C.UTF-8",
             "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "PYTHONUNBUFFERED": "1",
         },
         timeout=900,
-    )
-    playbook_log = write_result(
-        config, f"{label}-playbook", playbook_stdout, playbook_stderr, playbook_exit
     )
     if playbook_exit != 0:
         raise VmError(f"Verification playbook failed; see {playbook_log}.")
@@ -962,17 +1137,23 @@ def console(config: Config) -> NoReturn:
     os.execvp("virsh", ["virsh", "--connect", config.uri, "console", config.name, "--safe"])
 
 
-def wait_agent(config: Config) -> None:
+def wait_agent(config: Config, *, initial_boot: bool = True) -> None:
     validate_config(config)
     check_connection(config)
     if not domain_exists(config) or not is_running(config):
         raise VmError(f"Domain {config.name!r} is not running.")
     validate_marker(config)
 
-    print(
-        "Waiting for cloud-init to install the GNOME baseline and QEMU guest agent...", flush=True
-    )
+    if initial_boot:
+        print(
+            "Waiting for cloud-init to install the GNOME baseline and QEMU guest agent...",
+            flush=True,
+        )
+    else:
+        print("Waiting for the QEMU guest agent after reboot...", flush=True)
+    started = time.monotonic()
     deadline = time.monotonic() + 1800
+    next_progress = started + 30
     last_error = "guest agent did not respond"
     while time.monotonic() < deadline:
         result = virsh(
@@ -992,18 +1173,40 @@ def wait_agent(config: Config) -> None:
             if response == {"return": {}}:
                 break
         last_error = (result.stderr or result.stdout or last_error).strip().splitlines()[-1]
+        now = time.monotonic()
+        if now >= next_progress:
+            elapsed = int(now - started)
+            allocated_mib = config.disk_path.stat().st_blocks * 512 // (1024 * 1024)
+            print(
+                f"Still waiting for the guest agent ({elapsed}s elapsed; "
+                f"overlay uses {allocated_mib} MiB)...",
+                flush=True,
+            )
+            next_progress = now + 30
         time.sleep(2)
     else:
         raise VmError(
             f"The QEMU guest agent did not become ready within 1800 seconds: {last_error}"
         )
 
-    cloud_init = require_guest_command(
+    cloud_init_exit, cloud_init_stdout, cloud_init_stderr = guest_exec(
         config,
         "/usr/bin/cloud-init",
         ["status", "--wait"],
         timeout=3600,
     )
+    cloud_init_log_path: Path | None = None
+    if initial_boot:
+        cloud_init_log = guest_read_file(config, "/var/log/cloud-init-output.log")
+        config.results_dir.mkdir(parents=True, exist_ok=True)
+        cloud_init_log_path = config.results_dir / "cloud-init.log"
+        cloud_init_log_path.write_bytes(cloud_init_log)
+        print(f"Cloud-init log: {cloud_init_log_path}")
+    if cloud_init_exit != 0:
+        details = (cloud_init_stderr or cloud_init_stdout or "cloud-init failed").strip()
+        log_hint = f" Full log: {cloud_init_log_path}." if cloud_init_log_path else ""
+        raise VmError(f"cloud-init exited with {cloud_init_exit}: {details}{log_hint}")
+    cloud_init = cloud_init_stdout.strip()
     python_version = require_guest_command(config, "/usr/bin/python3", ["--version"])
     user_id = require_guest_command(config, "/usr/bin/id", ["-u"])
     root_size = require_guest_command(config, "/usr/bin/findmnt", ["-n", "-b", "-o", "SIZE", "/"])
@@ -1056,7 +1259,7 @@ def reboot(config: Config) -> None:
     else:
         raise VmError("The guest agent never disconnected during reboot.")
 
-    wait_agent(config)
+    wait_agent(config, initial_boot=False)
     current_boot = require_guest_command(
         config, "/usr/bin/cat", ["/proc/sys/kernel/random/boot_id"]
     )
@@ -1163,6 +1366,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--memory-mib", type=positive_integer, default=8192)
     parser.add_argument("--vcpus", type=positive_integer, default=4)
     parser.add_argument("--disk-gib", type=positive_integer, default=450)
+    parser.add_argument(
+        "--enable-bloodhound",
+        action="store_true",
+        help="enable and verify the optional BloodHound CE staging role",
+    )
     parser.add_argument("command", choices=sorted(COMMANDS))
     return parser.parse_args()
 
@@ -1180,6 +1388,7 @@ def main() -> int:
         memory_mib=arguments.memory_mib,
         vcpus=arguments.vcpus,
         disk_gib=arguments.disk_gib,
+        bloodhound_enabled=arguments.enable_bloodhound,
     )
     try:
         COMMANDS[arguments.command](config)

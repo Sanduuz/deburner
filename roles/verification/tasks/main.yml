@@ -56,6 +56,8 @@
     verification_offline_mirror_root: >-
       {{ offline_mirror_root
          | default(verification_offline_mirror_defaults.offline_mirror_root) }}
+    verification_bloodhound_enabled: >-
+      {{ tooling_bloodhound_enabled | default(false) }}
 
 - name: Read required service states
   ansible.builtin.command:
@@ -394,6 +396,72 @@
   when:
     - verification_offline_mirror_enabled | bool
     - not item.skipped | default(false)
+
+- name: Inspect optional BloodHound installation files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/bloodhound-cli
+    - /var/lib/deburner/bloodhound-ce-installed
+    - /root/.config/bloodhound/deburner-initial-install.txt
+  register: verification_bloodhound_files
+  when: verification_bloodhound_enabled | bool
+
+- name: Require optional BloodHound installation files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg or item.stat.islnk
+    fail_msg: "BloodHound installation file is missing: {{ item.item }}"
+  loop: "{{ verification_bloodhound_files.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - verification_bloodhound_enabled | bool
+    - not item.skipped | default(false)
+
+- name: Read staged container image repositories
+  ansible.builtin.command:
+    argv:
+      - docker
+      - image
+      - ls
+      - --format
+      - "{{ '{{.Repository}}' }}"
+  register: verification_bloodhound_images
+  changed_when: false
+  when: verification_bloodhound_enabled | bool
+
+- name: Require a staged BloodHound container image
+  ansible.builtin.assert:
+    that:
+      - verification_bloodhound_images.stdout_lines
+        | select('search', '(?i)bloodhound')
+        | list
+        | length > 0
+    fail_msg: No staged BloodHound container image was found.
+  when: verification_bloodhound_enabled | bool
+
+- name: Read running container images
+  ansible.builtin.command:
+    argv:
+      - docker
+      - ps
+      - --format
+      - "{{ '{{.Image}}' }}"
+  register: verification_running_container_images
+  changed_when: false
+  when: verification_bloodhound_enabled | bool
+
+- name: Require the BloodHound application container to remain stopped
+  ansible.builtin.assert:
+    that:
+      - verification_running_container_images.stdout_lines
+        | select('search', '(?i)bloodhound')
+        | list
+        | length == 0
+    fail_msg: A BloodHound application container is running.
+  when: verification_bloodhound_enabled | bool
 
 - name: Report successful verification
   ansible.builtin.debug:

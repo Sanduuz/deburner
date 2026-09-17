@@ -166,16 +166,18 @@ credentials for host access. The `passt` userspace network provides outbound
 guest access without forwarding any inbound ports. The host communicates with
 the guest agent only through the private virtio channel declared in the domain.
 
-`test-wait` waits for that channel and for cloud-init to finish. It then uses the
-guest agent to verify Python 3, root command execution, DNS resolution and root
-filesystem expansion. The workflow does not enable, configure, or use SSH.
+`test-wait` reports the elapsed time and sparse overlay usage every 30 seconds
+while cloud-init installs the guest agent. Once the channel is available, it
+saves `/var/log/cloud-init-output.log` under `.test-results/` and verifies Python
+3, root command execution, DNS resolution and root filesystem expansion. The
+workflow does not enable, configure, or use SSH.
 
 `test-create` also builds an immutable source ISO from files reported by
 `git ls-files --cached --others --exclude-standard`. Ignored files, including
 the operator's `local.yml`, Git metadata, caches and earlier test state are not
 copied. The guest receives a generated `local.yml` that explicitly disables the
-optional offline mirror. Cloud-init copies this snapshot to `/opt/deburner`
-before the guest agent becomes ready.
+optional offline mirror and BloodHound profile. Cloud-init copies this snapshot
+to `/opt/deburner` before the guest agent becomes ready.
 
 After `test-wait`, the remaining stages can be run separately:
 
@@ -188,12 +190,15 @@ make test-idempotence
 ```
 
 `test-provision` runs `deburner.yml` locally as root inside the guest through
-the guest agent. `test-verify` first runs the read-only `verify.yml` playbook and
-requires `changed=0`, then checks the supported platform, GNOME baseline,
+the guest agent. Provisioning and the Ansible part of verification stream their
+combined output live through QGA and retain the same output under
+`.test-results/`. `test-verify` requires the read-only `verify.yml` playbook to
+report `changed=0`, then checks the supported platform, GNOME baseline,
 hardening, firewall, disabled SSH units, Docker configuration and representative
 commands from every tooling category. `test-reboot` requires the guest boot ID
 to change and waits for the agent to return. `test-idempotence` reruns the full
-playbook and requires Ansible's recap to report `changed=0`.
+playbook, streams its progress and requires Ansible's recap to report
+`changed=0`.
 
 The complete workflow is available as one command:
 
@@ -206,6 +211,18 @@ provisions it, verifies it, reboots and verifies it again, checks idempotence,
 then removes the domain and overlay. The verified Debian cloud image remains
 cached. Provisioning downloads the complete toolset and can take a long time;
 the offline Debian mirror is deliberately excluded.
+
+Run the separate, heavier profile when changing the optional BloodHound role:
+
+```sh
+make test-bloodhound
+```
+
+It performs the same fresh-VM workflow with `tooling_bloodhound_enabled: true`.
+Verification requires the CLI, staging marker, protected initial-credential
+file and BloodHound container image, and confirms that the application container
+was left stopped. The normal `make test` remains the default profile and does
+not download or stage BloodHound.
 
 Ansible and verification logs are retained under `.test-results/`, which is
 ignored by Git. Successful tests remove their VM automatically. A failed test

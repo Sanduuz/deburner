@@ -235,6 +235,46 @@ def verify_tooling() -> None:
     record(not Path("/srv/deburner/mirror").exists(), "offline mirror was not synchronized")
 
 
+def verify_test_profile() -> None:
+    try:
+        profile = json.loads(Path("/opt/deburner/.test-profile.json").read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        record(False, "integration-test profile is readable", str(error))
+        return
+
+    bloodhound_enabled = profile.get("bloodhound_enabled") is True
+    marker = Path("/var/lib/deburner/bloodhound-ce-installed")
+    if not bloodhound_enabled:
+        record(not marker.exists(), "disabled BloodHound profile was not staged")
+        return
+
+    command_exists("bloodhound-cli")
+    file_exists(str(marker))
+    credentials = Path("/root/.config/bloodhound/deburner-initial-install.txt")
+    file_exists(str(credentials))
+    if credentials.exists():
+        record(
+            credentials.stat().st_mode & 0o777 == 0o600,
+            "BloodHound initial credentials are mode 0600",
+        )
+
+    images = run(["docker", "image", "ls", "--format", "{{.Repository}}"])
+    repositories = images.stdout.splitlines()
+    record(
+        images.returncode == 0 and any("bloodhound" in item.lower() for item in repositories),
+        "BloodHound container image is staged",
+        (images.stderr or images.stdout).strip(),
+    )
+    running = run(["docker", "ps", "--format", "{{.Image}}"])
+    running_images = running.stdout.splitlines()
+    record(
+        running.returncode == 0
+        and not any("bloodhound" in item.lower() for item in running_images),
+        "BloodHound application container is stopped",
+        (running.stderr or running.stdout).strip(),
+    )
+
+
 def main() -> int:
     if os.geteuid() != 0:
         print("FAIL: guest verification must run as root", file=sys.stderr)
@@ -244,6 +284,7 @@ def main() -> int:
     verify_docker()
     verify_customization()
     verify_tooling()
+    verify_test_profile()
     print(f"\nVerification summary: {len(PASSES)} passed, {len(FAILURES)} failed")
     if FAILURES:
         for failure in FAILURES:

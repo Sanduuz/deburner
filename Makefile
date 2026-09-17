@@ -28,6 +28,7 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	--disk-gib "$(TEST_VM_DISK_GIB)"
 
 .PHONY: setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
+	test-bloodhound \
 	test-prerequisites test-image test-image-status test-image-purge test-create test-start test-stop \
 	test-destroy test-status test-console test-wait test-provision test-verify test-reboot \
 	test-idempotence test-refresh test-clean
@@ -60,6 +61,9 @@ check-syntax:
 
 test: check
 	$(TEST_VM_COMMAND) run-workflow
+
+test-bloodhound: check
+	$(TEST_VM_COMMAND) --enable-bloodhound run-workflow
 
 test-prerequisites:
 	$(TEST_VM_COMMAND) prerequisites
