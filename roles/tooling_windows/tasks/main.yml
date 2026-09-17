@@ -1,0 +1,488 @@
+---
+- name: Validate Windows tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_windows_packages | type_debug == 'list'
+      - tooling_windows_packages | length > 0
+      - tooling_windows_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_windows_packages | length
+      - tooling_windows_certipy_pypi_api == 'https://pypi.org/pypi/certipy-ad/json'
+      - tooling_windows_impacket_pypi_api == 'https://pypi.org/pypi/impacket/json'
+      - tooling_windows_netexec_release_api == 'https://api.github.com/repos/Pennyw0rth/NetExec/releases/latest'
+      - tooling_windows_netexec_repository == 'https://github.com/Pennyw0rth/NetExec.git'
+      - tooling_windows_responder_commit_api == 'https://api.github.com/repos/lgandx/Responder/commits/master'
+      - tooling_windows_responder_repository == 'https://github.com/lgandx/Responder.git'
+    fail_msg: Review the Windows tooling variables; one or more values are invalid.
+
+- name: Install Windows tooling runtime dependencies
+  ansible.builtin.apt:
+    name: "{{ tooling_windows_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Expose John the Ripper on the regular user path
+  ansible.builtin.file:
+    src: /usr/sbin/john
+    dest: /usr/local/bin/john
+    state: link
+    force: true
+
+- name: Check for the upstream uv installation
+  ansible.builtin.stat:
+    path: /usr/local/bin/uv
+  register: tooling_windows_uv
+
+- name: Check for the upstream Rust installation
+  ansible.builtin.stat:
+    path: /usr/local/bin/cargo
+  register: tooling_windows_cargo
+
+- name: Require the earlier upstream tool installations
+  ansible.builtin.assert:
+    that:
+      - tooling_windows_uv.stat.exists
+      - tooling_windows_uv.stat.executable
+      - tooling_windows_cargo.stat.exists
+      - tooling_windows_cargo.stat.executable
+    fail_msg: Run tooling-core.yml and tooling-analysis.yml before tooling-windows.yml so Rust and uv are available.
+
+- name: Create the artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read current Impacket release metadata
+  ansible.builtin.uri:
+    url: "{{ tooling_windows_impacket_pypi_api }}"
+    return_content: true
+  register: tooling_windows_impacket_release
+  changed_when: false
+
+- name: Select the current Impacket wheel
+  ansible.builtin.set_fact:
+    tooling_windows_impacket_assets: >-
+      {{ tooling_windows_impacket_release.json.urls
+         | selectattr('packagetype', 'equalto', 'bdist_wheel')
+         | selectattr('filename', 'match', '^impacket-[0-9.]+-py3-none-any\.whl$')
+         | list }}
+
+- name: Validate current Impacket release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_windows_impacket_release.json.info.version is match('^[0-9]+(?:\.[0-9]+)+$')
+      - tooling_windows_impacket_assets | length == 1
+      - tooling_windows_impacket_assets[0].digests.sha256 is match('^[0-9a-f]{64}$')
+      - tooling_windows_impacket_assets[0].url is match('^https://files\.pythonhosted\.org/')
+    fail_msg: PyPI did not return one checksum-described platform-independent Impacket wheel.
+
+- name: Define the current Impacket artifact
+  ansible.builtin.set_fact:
+    tooling_windows_impacket_asset: "{{ tooling_windows_impacket_assets[0] }}"
+    tooling_windows_impacket_version: "{{ tooling_windows_impacket_release.json.info.version }}"
+    tooling_windows_impacket_install_dir: >-
+      /opt/impacket-{{ tooling_windows_impacket_release.json.info.version }}
+
+- name: Check whether the current Impacket release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_impacket_install_dir }}/.deburner-install-complete"
+  register: tooling_windows_impacket_marker
+
+- name: Install current Impacket and its dependencies
+  when: not tooling_windows_impacket_marker.stat.exists
+  block:
+    - name: Create the Impacket virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "{{ tooling_windows_impacket_install_dir }}"
+        creates: "{{ tooling_windows_impacket_install_dir }}/bin/python"
+
+    - name: Download the current Impacket wheel
+      ansible.builtin.get_url:
+        url: "{{ tooling_windows_impacket_asset.url }}"
+        dest: "/var/cache/deburner/{{ tooling_windows_impacket_asset.filename }}"
+        checksum: "sha256:{{ tooling_windows_impacket_asset.digests.sha256 }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Install Impacket and Python dependencies with uv
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ tooling_windows_impacket_install_dir }}/bin/python"
+          - "/var/cache/deburner/{{ tooling_windows_impacket_asset.filename }}"
+      changed_when: true
+
+    - name: Remove the downloaded Impacket wheel
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_windows_impacket_asset.filename }}"
+        state: absent
+
+- name: Validate representative Impacket scripts
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_impacket_install_dir }}/bin/{{ item }}.py"
+  loop:
+    - GetUserSPNs
+    - ntlmrelayx
+    - psexec
+    - secretsdump
+    - wmiexec
+  register: tooling_windows_impacket_representative_scripts
+
+- name: Require representative Impacket scripts
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.executable
+    fail_msg: "The Impacket installation is missing {{ item.item }}.py."
+  loop: "{{ tooling_windows_impacket_representative_scripts.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Mark the Impacket release as completely installed
+  ansible.builtin.copy:
+    content: "{{ tooling_windows_impacket_version }}\n"
+    dest: "{{ tooling_windows_impacket_install_dir }}/.deburner-install-complete"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create the stable Impacket path
+  ansible.builtin.file:
+    src: "{{ tooling_windows_impacket_install_dir }}"
+    dest: /opt/impacket
+    state: link
+    force: true
+
+- name: Find installed Impacket scripts
+  ansible.builtin.find:
+    paths: "{{ tooling_windows_impacket_install_dir }}/bin"
+    patterns: '*.py'
+    file_type: file
+  register: tooling_windows_impacket_scripts
+
+- name: Require a complete Impacket script collection
+  ansible.builtin.assert:
+    that:
+      - tooling_windows_impacket_scripts.matched | int >= 50
+    fail_msg: The Impacket wheel exposed fewer scripts than expected.
+
+- name: Expose Impacket commands
+  ansible.builtin.file:
+    src: "/opt/impacket/bin/{{ item.path | basename }}"
+    dest: >-
+      /usr/local/bin/impacket-{{ item.path | basename | regex_replace('\.py$', '') }}
+    state: link
+    force: true
+  loop: "{{ tooling_windows_impacket_scripts.files }}"
+  loop_control:
+    label: >-
+      impacket-{{ item.path | basename | regex_replace('\.py$', '') }}
+
+- name: Read the latest stable NetExec release
+  ansible.builtin.uri:
+    url: "{{ tooling_windows_netexec_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_windows_netexec_release
+  changed_when: false
+
+- name: Validate the latest stable NetExec release
+  ansible.builtin.assert:
+    that:
+      - not tooling_windows_netexec_release.json.draft
+      - not tooling_windows_netexec_release.json.prerelease
+      - tooling_windows_netexec_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_windows_netexec_release.json.html_url is match('^https://github\.com/Pennyw0rth/NetExec/releases/tag/')
+    fail_msg: GitHub did not return a valid stable NetExec release.
+
+- name: Define the current NetExec installation
+  ansible.builtin.set_fact:
+    tooling_windows_netexec_version: >-
+      {{ tooling_windows_netexec_release.json.tag_name | regex_replace('^v', '') }}
+    tooling_windows_netexec_install_dir: >-
+      /opt/netexec-{{ tooling_windows_netexec_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Check whether the current NetExec release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_netexec_install_dir }}/.deburner-install-complete"
+  register: tooling_windows_netexec_marker
+
+- name: Install the current stable NetExec release and its dependencies
+  when: not tooling_windows_netexec_marker.stat.exists
+  block:
+    - name: Create the NetExec virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "{{ tooling_windows_netexec_install_dir }}"
+        creates: "{{ tooling_windows_netexec_install_dir }}/bin/python"
+
+    - name: Install the tagged NetExec source with uv
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ tooling_windows_netexec_install_dir }}/bin/python"
+          - >-
+            git+{{ tooling_windows_netexec_repository }}@{{ tooling_windows_netexec_release.json.tag_name }}
+      environment:
+        CARGO_HOME: /opt/rustup-cargo
+        RUSTUP_HOME: /opt/rustup
+        PATH: /opt/rustup-cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      changed_when: true
+
+- name: Validate NetExec commands
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_netexec_install_dir }}/bin/{{ item }}"
+  loop:
+    - netexec
+    - nxc
+    - nxcdb
+  register: tooling_windows_netexec_commands
+
+- name: Require NetExec commands
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.executable
+    fail_msg: "The NetExec installation is missing {{ item.item }}."
+  loop: "{{ tooling_windows_netexec_commands.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Mark the NetExec release as completely installed
+  ansible.builtin.copy:
+    content: "{{ tooling_windows_netexec_version }}\n"
+    dest: "{{ tooling_windows_netexec_install_dir }}/.deburner-install-complete"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create the stable NetExec path
+  ansible.builtin.file:
+    src: "{{ tooling_windows_netexec_install_dir }}"
+    dest: /opt/netexec
+    state: link
+    force: true
+
+- name: Expose NetExec commands
+  ansible.builtin.file:
+    src: "/opt/netexec/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - netexec
+    - nxc
+    - nxcdb
+
+- name: Read current Certipy release metadata
+  ansible.builtin.uri:
+    url: "{{ tooling_windows_certipy_pypi_api }}"
+    return_content: true
+  register: tooling_windows_certipy_release
+  changed_when: false
+
+- name: Select the current Certipy wheel
+  ansible.builtin.set_fact:
+    tooling_windows_certipy_assets: >-
+      {{ tooling_windows_certipy_release.json.urls
+         | selectattr('packagetype', 'equalto', 'bdist_wheel')
+         | selectattr('filename', 'match', '^certipy_ad-[0-9.]+-py3-none-any\.whl$')
+         | list }}
+
+- name: Validate current Certipy release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_windows_certipy_release.json.info.version is match('^[0-9]+(?:\.[0-9]+)+$')
+      - tooling_windows_certipy_assets | length == 1
+      - tooling_windows_certipy_assets[0].digests.sha256 is match('^[0-9a-f]{64}$')
+      - tooling_windows_certipy_assets[0].url is match('^https://files\.pythonhosted\.org/')
+    fail_msg: PyPI did not return one checksum-described platform-independent Certipy wheel.
+
+- name: Define the current Certipy artifact
+  ansible.builtin.set_fact:
+    tooling_windows_certipy_asset: "{{ tooling_windows_certipy_assets[0] }}"
+    tooling_windows_certipy_version: "{{ tooling_windows_certipy_release.json.info.version }}"
+    tooling_windows_certipy_install_dir: >-
+      /opt/certipy-{{ tooling_windows_certipy_release.json.info.version }}
+
+- name: Check whether the current Certipy release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_certipy_install_dir }}/.deburner-install-complete"
+  register: tooling_windows_certipy_marker
+
+- name: Install current Certipy and its dependencies
+  when: not tooling_windows_certipy_marker.stat.exists
+  block:
+    - name: Create the Certipy virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "{{ tooling_windows_certipy_install_dir }}"
+        creates: "{{ tooling_windows_certipy_install_dir }}/bin/python"
+
+    - name: Download the current Certipy wheel
+      ansible.builtin.get_url:
+        url: "{{ tooling_windows_certipy_asset.url }}"
+        dest: "/var/cache/deburner/{{ tooling_windows_certipy_asset.filename }}"
+        checksum: "sha256:{{ tooling_windows_certipy_asset.digests.sha256 }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Install Certipy and Python dependencies with uv
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ tooling_windows_certipy_install_dir }}/bin/python"
+          - "/var/cache/deburner/{{ tooling_windows_certipy_asset.filename }}"
+      changed_when: true
+
+    - name: Remove the downloaded Certipy wheel
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_windows_certipy_asset.filename }}"
+        state: absent
+
+- name: Validate the Certipy command
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_certipy_install_dir }}/bin/certipy"
+  register: tooling_windows_certipy_command
+
+- name: Require the Certipy command
+  ansible.builtin.assert:
+    that:
+      - tooling_windows_certipy_command.stat.exists
+      - tooling_windows_certipy_command.stat.isreg
+      - tooling_windows_certipy_command.stat.executable
+    fail_msg: The Certipy installation is missing its command.
+
+- name: Mark the Certipy release as completely installed
+  ansible.builtin.copy:
+    content: "{{ tooling_windows_certipy_version }}\n"
+    dest: "{{ tooling_windows_certipy_install_dir }}/.deburner-install-complete"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create the stable Certipy path
+  ansible.builtin.file:
+    src: "{{ tooling_windows_certipy_install_dir }}"
+    dest: /opt/certipy
+    state: link
+    force: true
+
+- name: Expose the Certipy command
+  ansible.builtin.file:
+    src: /opt/certipy/bin/certipy
+    dest: /usr/local/bin/certipy
+    state: link
+    force: true
+
+- name: Resolve the current Responder commit
+  ansible.builtin.uri:
+    url: "{{ tooling_windows_responder_commit_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_windows_responder_commit
+  changed_when: false
+
+- name: Validate the current Responder commit
+  ansible.builtin.assert:
+    that:
+      - tooling_windows_responder_commit.json.sha is match('^[0-9a-f]{40}$')
+      - tooling_windows_responder_commit.json.html_url is match('^https://github\.com/lgandx/Responder/commit/[0-9a-f]{40}$')
+    fail_msg: GitHub did not return a valid Responder commit.
+
+- name: Define the current Responder installation
+  ansible.builtin.set_fact:
+    tooling_windows_responder_install_dir: >-
+      /opt/responder-{{ tooling_windows_responder_commit.json.sha }}
+
+- name: Check whether the current Responder commit is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_windows_responder_install_dir }}/.deburner-install-complete"
+  register: tooling_windows_responder_marker
+
+- name: Install the current Responder source
+  when: not tooling_windows_responder_marker.stat.exists
+  block:
+    - name: Clone the exact Responder commit
+      ansible.builtin.git:
+        repo: "{{ tooling_windows_responder_repository }}"
+        dest: "{{ tooling_windows_responder_install_dir }}"
+        version: "{{ tooling_windows_responder_commit.json.sha }}"
+        update: false
+
+    - name: Make the Responder entry point executable
+      ansible.builtin.file:
+        path: "{{ tooling_windows_responder_install_dir }}/Responder.py"
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Validate the Responder command
+      ansible.builtin.stat:
+        path: "{{ tooling_windows_responder_install_dir }}/Responder.py"
+      register: tooling_windows_responder_command
+
+    - name: Require the Responder command
+      ansible.builtin.assert:
+        that:
+          - tooling_windows_responder_command.stat.exists
+          - tooling_windows_responder_command.stat.isreg
+          - tooling_windows_responder_command.stat.executable
+        fail_msg: The Responder checkout is missing its executable.
+
+    - name: Mark the Responder commit as completely installed
+      ansible.builtin.copy:
+        content: "{{ tooling_windows_responder_commit.json.sha }}\n"
+        dest: "{{ tooling_windows_responder_install_dir }}/.deburner-install-complete"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Create the stable Responder path
+  ansible.builtin.file:
+    src: "{{ tooling_windows_responder_install_dir }}"
+    dest: /opt/responder
+    state: link
+    force: true
+
+- name: Expose the Responder command
+  ansible.builtin.file:
+    src: /opt/responder/Responder.py
+    dest: /usr/local/bin/responder
+    state: link
+    force: true

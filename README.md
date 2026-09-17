@@ -46,9 +46,10 @@ Ansible collections are required.
 
 Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
-playbooks in dependency order: hardening, core, network, analysis and desktop
-tooling, exploitation tooling, reverse-engineering tooling, web tooling, Docker,
-user and desktop customizations, and the optional offline-mirror sync. Future
+playbooks in dependency order: hardening, core, network, analysis, Windows/Active
+Directory and desktop tooling, exploitation tooling, reverse-engineering tooling,
+web tooling, SecLists, Docker, user and desktop customizations, and the optional
+offline-mirror sync. Future
 optional playbooks that expose services, such as screen sharing, will not be
 included. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
@@ -230,10 +231,12 @@ ansible-playbook hardening.yml --ask-become-pass
 ansible-playbook tooling-core.yml --ask-become-pass
 ansible-playbook tooling-network.yml --ask-become-pass
 ansible-playbook tooling-analysis.yml --ask-become-pass
+ansible-playbook tooling-windows.yml --ask-become-pass
 ansible-playbook tooling-desktop.yml --ask-become-pass
 ansible-playbook tooling-exploitation.yml --ask-become-pass
 ansible-playbook tooling-reversing.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
+ansible-playbook tooling-wordlists.yml --ask-become-pass
 ansible-playbook docker.yml --ask-become-pass
 ansible-playbook customization.yml --ask-become-pass
 ansible-playbook mirror-sync.yml --ask-become-pass
@@ -432,6 +435,36 @@ final official Volatility 2.6 standalone Linux build under `/opt`, points
 archived legacy software and receives no updates; keep it only for profiles and
 plugins that have not been ported.
 
+### Windows and Active Directory tooling
+
+`tooling-windows.yml` installs SMB and LDAP clients, Hashcat, John the Ripper and
+Hydra from Debian. It also installs the current stable Impacket and Certipy
+releases and the latest stable [NetExec](https://github.com/Pennyw0rth/NetExec)
+release. Each Python toolkit uses a separate, versioned uv environment under
+`/opt`, leaving Debian's Python installation unchanged. Every Impacket example
+script is exposed with an `impacket-` prefix, including `impacket-secretsdump`,
+`impacket-psexec`, `impacket-GetUserSPNs` and `impacket-ntlmrelayx`. Certipy
+provides `certipy`; NetExec provides `nxc`, `netexec` and `nxcdb`.
+
+The role selects the platform-independent Impacket and Certipy wheels from their
+current PyPI releases and verifies their published SHA-256 digests. NetExec's
+official Unix installation uses its Git repository, so the role resolves
+GitHub's current non-draft, non-prerelease tag and installs that tagged source.
+NetExec currently declares several direct Git dependencies without fixed
+commits; uv resolves those dependencies when the burner is provisioned. This
+favors current tooling over a fully reproducible dependency set and provides no
+independent source signature verification. The role requires the upstream Rust
+and uv installations from the earlier standard tooling playbooks.
+
+The same playbook resolves the current commit of
+[Responder](https://github.com/lgandx/Responder), checks out that exact commit
+under `/opt`, and exposes it as `responder`. Its small Python dependency set comes
+from Debian. Responder is not enabled as a service and does not run during
+provisioning or at boot. Invoke it deliberately with `sudo`; its poisoning and
+rogue-server modes can disrupt a network. A fresh provisioning run tracks the
+current upstream commit because Responder does not publish regular stable release
+artifacts.
+
 ### Desktop workstation tooling
 
 `tooling-desktop.yml` installs Chromium, GIMP, Meld, PulseAudio Volume Control,
@@ -517,8 +550,24 @@ limit defaults to 4 GB and can be changed with `tooling_web_burp_max_heap` in
 These upstream installs favor current tools over reproducible builds. Running the
 same revision of deburner at different times can install different versions.
 
-Ghidra, Binary Ninja Free and Burp are large downloads and consume several
-gigabytes after extraction. Provision them while the machine has Internet access.
+### CTF wordlists
+
+`tooling-wordlists.yml` installs the latest stable
+[SecLists](https://github.com/danielmiessler/SecLists) release on every standard
+provisioning run. Releases use versioned directories under `/opt`; the conventional
+`/usr/share/seclists` path points to the active release through `/opt/seclists`.
+The role validates that the main discovery, fuzzing, password, and web-shell
+directories exist after extraction.
+
+SecLists publishes GitHub releases without checksum-described binary assets. The
+role downloads GitHub's generated source archive for the current non-draft,
+non-prerelease tag. HTTPS protects the transfer, but there is no independent
+release checksum or signature verification. A later fresh provisioning run can
+therefore install a newer release.
+
+Ghidra, Binary Ninja Free, Burp and SecLists are large downloads and consume
+several gigabytes after extraction. Provision them while the machine has Internet
+access.
 
 ### Offline Debian mirror
 
@@ -605,7 +654,7 @@ expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
 Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
-or Burp Suite.
+Impacket, Certipy, NetExec, Responder, Burp Suite or SecLists.
 
 ## Modifications made
 
@@ -622,10 +671,12 @@ or Burp Suite.
 | Core tooling | Install command-line, archive, Python and native build packages from Debian; install the current upstream stable Rust toolchain with rustup | Provide a general base for CTF tooling without modifying personal shell or editor settings |
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
+| Windows / AD tooling | Install SMB/LDAP clients, Hashcat, John, Hydra, current stable Impacket, Certipy and NetExec, plus the current Responder source; expose their commands system-wide without enabling Responder | Support Windows and Active Directory discovery, authentication, credential recovery, relay and remote administration exercises without modifying Debian's Python environment or starting listeners |
 | Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; build the current pycdc and pycdas; add stable commands and desktop launchers | Provide current native, Python-bytecode and Java reverse-engineering tools without accounts or stored license keys |
 | Web tooling | Resolve and install the current Burp Suite Community JAR with a command and desktop launcher | Provide a current account-free web proxy and testing toolkit |
+| Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and optional mirror-sync playbooks with one command while retaining individual category entry points |
@@ -688,6 +739,8 @@ rustc --version
 cargo --version
 command -v strace ltrace htop binwalk exiftool sqlite3 yara fls photorec
 command -v uv uvx vol volatility2 volatility3 volshell
+command -v smbclient ldapsearch hashcat john hydra responder certipy
+command -v impacket-GetUserSPNs impacket-ntlmrelayx impacket-psexec impacket-secretsdump impacket-wmiexec nxc netexec nxcdb
 command -v chromium gimp meld pavucontrol d-feet virt-manager zed
 command -v gdb gdb-multiarch pwn checksec r2 radare2 pycdc pycdas ghidra binaryninja burpsuite
 gdb --batch -ex 'peda show option' -ex quit

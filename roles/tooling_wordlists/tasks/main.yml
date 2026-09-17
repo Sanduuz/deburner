@@ -1,0 +1,134 @@
+---
+- name: Validate wordlist tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_wordlists_packages | type_debug == 'list'
+      - tooling_wordlists_packages | length > 0
+      - tooling_wordlists_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_wordlists_packages | length
+      - tooling_wordlists_seclists_release_api == 'https://api.github.com/repos/danielmiessler/SecLists/releases/latest'
+    fail_msg: Review the wordlist tooling variables; one or more values are invalid.
+
+- name: Install wordlist extraction dependencies
+  ansible.builtin.apt:
+    name: "{{ tooling_wordlists_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest SecLists release
+  ansible.builtin.uri:
+    url: "{{ tooling_wordlists_seclists_release_api }}"
+    headers: "{{ tooling_wordlists_github_api_headers }}"
+    return_content: true
+  register: tooling_wordlists_seclists_release
+  changed_when: false
+
+- name: Validate the latest SecLists release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_wordlists_seclists_release.json.tag_name is match('^[0-9]{4}\.[0-9]+$')
+      - not tooling_wordlists_seclists_release.json.draft
+      - not tooling_wordlists_seclists_release.json.prerelease
+      - tooling_wordlists_seclists_release.json.tarball_url is match('^https://api\.github\.com/repos/danielmiessler/SecLists/tarball/')
+    fail_msg: The latest SecLists release metadata does not have the expected format.
+
+- name: Define the current SecLists artifact
+  ansible.builtin.set_fact:
+    tooling_wordlists_seclists_version: "{{ tooling_wordlists_seclists_release.json.tag_name }}"
+    tooling_wordlists_seclists_archive: >-
+      /var/cache/deburner/seclists-{{ tooling_wordlists_seclists_release.json.tag_name }}.tar.gz
+    tooling_wordlists_seclists_install_dir: >-
+      /opt/seclists-{{ tooling_wordlists_seclists_release.json.tag_name }}
+
+- name: Check whether the current SecLists release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_wordlists_seclists_install_dir }}/.deburner-install-complete"
+  register: tooling_wordlists_seclists_marker
+
+- name: Install the current SecLists release
+  when: not tooling_wordlists_seclists_marker.stat.exists
+  block:
+    - name: Create the versioned SecLists directory
+      ansible.builtin.file:
+        path: "{{ tooling_wordlists_seclists_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download the SecLists release archive
+      ansible.builtin.get_url:
+        url: "{{ tooling_wordlists_seclists_release.json.tarball_url }}"
+        dest: "{{ tooling_wordlists_seclists_archive }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 600
+
+    - name: Extract SecLists under opt
+      ansible.builtin.unarchive:
+        src: "{{ tooling_wordlists_seclists_archive }}"
+        dest: "{{ tooling_wordlists_seclists_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+        extra_opts:
+          - --strip-components=1
+
+    - name: Remove the SecLists release archive
+      ansible.builtin.file:
+        path: "{{ tooling_wordlists_seclists_archive }}"
+        state: absent
+
+- name: Validate the installed SecLists layout
+  ansible.builtin.stat:
+    path: "{{ tooling_wordlists_seclists_install_dir }}/{{ item }}"
+  loop:
+    - Discovery
+    - Fuzzing
+    - Passwords
+    - Web-Shells
+  register: tooling_wordlists_seclists_directories
+
+- name: Require the expected SecLists directories
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isdir
+    fail_msg: "The SecLists release is missing its {{ item.item }} directory."
+  loop: "{{ tooling_wordlists_seclists_directories.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Mark the SecLists release as completely installed
+  ansible.builtin.copy:
+    content: "{{ tooling_wordlists_seclists_version }}\n"
+    dest: "{{ tooling_wordlists_seclists_install_dir }}/.deburner-install-complete"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create the stable SecLists path under opt
+  ansible.builtin.file:
+    src: "{{ tooling_wordlists_seclists_install_dir }}"
+    dest: /opt/seclists
+    state: link
+    force: true
+
+- name: Create the conventional SecLists path
+  ansible.builtin.file:
+    src: /opt/seclists
+    dest: /usr/share/seclists
+    state: link
+    force: true

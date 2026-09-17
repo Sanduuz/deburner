@@ -23,10 +23,12 @@ docker_group_users: []
 # tooling_core_packages: []
 # tooling_network_packages: []
 # tooling_analysis_packages: []
+# tooling_windows_packages: []
 # tooling_desktop_packages: []
 # tooling_exploitation_packages: []
 # tooling_reversing_packages: []
 # tooling_web_packages: []
+# tooling_wordlists_packages: []
 
 # Burp Suite Community is started with this Java heap limit.
 tooling_web_burp_max_heap: 4g

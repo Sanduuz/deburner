@@ -8,6 +8,7 @@ verification_required_commands:
   - binaryninja
   - burpsuite
   - cargo
+  - certipy
   - checksec
   - chromium
   - curl
@@ -21,21 +22,35 @@ verification_required_commands:
   - gimp
   - gnome-terminal
   - go
+  - hashcat
   - htop
+  - hydra
+  - impacket-GetUserSPNs
+  - impacket-ntlmrelayx
+  - impacket-psexec
+  - impacket-secretsdump
+  - impacket-wmiexec
+  - john
   - ltrace
+  - ldapsearch
   - meld
+  - netexec
   - nmap
+  - nxc
+  - nxcdb
   - openvpn
   - pwn
   - pycdas
   - pycdc
   - python3
   - r2
+  - responder
   - rg
   - rust-analyzer
   - rustc
   - rustup
   - sqlite3
+  - smbclient
   - strace
   - tcpdump
   - tshark
@@ -61,6 +76,7 @@ verification_required_system_files:
   - /etc/sysctl.d/90-deburner.conf
   - /opt/burpsuite-community/burpsuite-community.jar
   - /opt/peda/peda.py
+  - /usr/share/seclists/README.md
 
 verification_required_user_files:
   - .bash_aliases

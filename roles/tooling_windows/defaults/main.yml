@@ -1,0 +1,20 @@
+---
+tooling_windows_packages:
+  - build-essential
+  - ca-certificates
+  - git
+  - hashcat
+  - hydra
+  - john
+  - ldap-utils
+  - python3-aioquic
+  - python3-dev
+  - python3-netifaces
+  - smbclient
+
+tooling_windows_certipy_pypi_api: https://pypi.org/pypi/certipy-ad/json
+tooling_windows_impacket_pypi_api: https://pypi.org/pypi/impacket/json
+tooling_windows_netexec_release_api: https://api.github.com/repos/Pennyw0rth/NetExec/releases/latest
+tooling_windows_netexec_repository: https://github.com/Pennyw0rth/NetExec.git
+tooling_windows_responder_commit_api: https://api.github.com/repos/lgandx/Responder/commits/master
+tooling_windows_responder_repository: https://github.com/lgandx/Responder.git

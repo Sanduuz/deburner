@@ -16,6 +16,9 @@
 - name: Install system and file analysis tooling
   ansible.builtin.import_playbook: tooling-analysis.yml
 
+- name: Install Windows and Active Directory tooling
+  ansible.builtin.import_playbook: tooling-windows.yml
+
 - name: Install desktop workstation tooling
   ansible.builtin.import_playbook: tooling-desktop.yml
 
@@ -27,6 +30,9 @@
 
 - name: Install web security tooling
   ansible.builtin.import_playbook: tooling-web.yml
+
+- name: Install CTF wordlists
+  ansible.builtin.import_playbook: tooling-wordlists.yml
 
 - name: Install Docker tooling
   ansible.builtin.import_playbook: docker.yml

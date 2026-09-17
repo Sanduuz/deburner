@@ -174,6 +174,7 @@ def verify_tooling() -> None:
         "batcat",
         "burpsuite",
         "cargo",
+        "certipy",
         "checksec",
         "chromium",
         "curl",
@@ -185,19 +186,33 @@ def verify_tooling() -> None:
         "ghidra",
         "gimp",
         "go",
+        "hashcat",
         "htop",
+        "hydra",
+        "impacket-GetUserSPNs",
+        "impacket-ntlmrelayx",
+        "impacket-psexec",
+        "impacket-secretsdump",
+        "impacket-wmiexec",
+        "john",
         "ltrace",
+        "ldapsearch",
         "meld",
+        "netexec",
         "nmap",
+        "nxc",
+        "nxcdb",
         "openvpn",
         "pwn",
         "pycdas",
         "pycdc",
         "r2",
+        "responder",
         "rg",
         "rustc",
         "rust-analyzer",
         "sqlite3",
+        "smbclient",
         "strace",
         "tcpdump",
         "tshark",
@@ -216,6 +231,7 @@ def verify_tooling() -> None:
     file_exists("/opt/peda/peda.py")
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
+    file_exists("/usr/share/seclists/README.md")
     record(not Path("/srv/deburner/mirror").exists(), "offline mirror was not synchronized")
 
 
