@@ -1,0 +1,75 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "cli_default_open_behavior": "new_window",
+  "project_panel": {
+    "dock": "left",
+  },
+  "outline_panel": {
+    "dock": "left",
+  },
+  "collaboration_panel": {
+    "dock": "left",
+  },
+  "agent": {
+    "dock": "right",
+    "favorite_models": [],
+    "model_parameters": [],
+  },
+  "git_panel": {
+    "dock": "left",
+  },
+  "calls": {
+    "mute_on_join": true,
+  },
+  "disable_ai": true,
+  "icon_theme": "Zed (Default)",
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false,
+  },
+  "vim_mode": true,
+  "base_keymap": "SublimeText",
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "Gruvbox Dark",
+  },
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path": "{{ customization_zed_rust_analyzer_path }}",
+      },
+      "initialization_options": {
+        "check": {
+          "ignore": [
+            // "dead_code",
+            // "unused_imports",
+            // "unused_variables",
+            // "unused_macros",
+            // "unused_mut",
+            "E0463"
+          ],
+        },
+      },
+    },
+    "clangd": {
+      "binary": {
+        "arguments": ["--query-driver=/usr/bin/g++,/usr/bin/g++-*"],
+      },
+    },
+  },
+  "languages": {
+    "YAML": {
+      "format_on_save": "off",
+    },
+  },
+}

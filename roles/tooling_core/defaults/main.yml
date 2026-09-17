@@ -60,6 +60,8 @@ tooling_core_rustup_cargo_home: /opt/rustup-cargo
 tooling_core_rustup_archive: /var/cache/deburner/rustup-init
 tooling_core_rustup_profile: default
 tooling_core_rustup_toolchain: stable
+tooling_core_rust_components:
+  - rust-analyzer
 
 tooling_core_rust_commands:
   - cargo
@@ -69,6 +71,7 @@ tooling_core_rust_commands:
   - rust-gdb
   - rust-gdbgui
   - rust-lldb
+  - rust-analyzer
   - rustc
   - rustdoc
   - rustfmt

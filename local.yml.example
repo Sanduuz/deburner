@@ -31,6 +31,10 @@ docker_group_users: []
 # Burp Suite Community is started with this Java heap limit.
 tooling_web_burp_max_heap: 4g
 
+# User and desktop customization. An empty value selects the account with UID
+# 1000. Set the account name explicitly if the desktop user has another UID.
+customization_user: ''
+
 # Optional local Debian package mirror. The initial sync can run for hours and
 # requires the machine to remain powered on with Internet access.
 offline_mirror_enabled: false

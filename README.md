@@ -48,8 +48,9 @@ Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, analysis and desktop
 tooling, exploitation tooling, reverse-engineering tooling, web tooling, Docker,
-and the optional offline-mirror sync. Future optional playbooks that expose
-services, such as screen sharing, will not be included. All tasks target
+user and desktop customizations, and the optional offline-mirror sync. Future
+optional playbooks that expose services, such as screen sharing, will not be
+included. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
 you can rerun them during initial provisioning or to apply a deliberate
 configuration change, such as opening another port. Rerunning the playbooks is
@@ -100,6 +101,9 @@ ansible-lint with its production profile, and performs an Ansible syntax check o
 every top-level playbook. The development dependencies are isolated in `.venv`
 and locked by `uv.lock`; they are not installed globally or provisioned on the
 burner. Run `uv lock --upgrade` deliberately when updating the validation tools.
+Use `make check` for routine changes. Reserve the resource-intensive `make test`
+workflow for substantial provisioning or VM infrastructure changes and final
+validation before a release.
 
 ### Local test VM lifecycle
 
@@ -230,6 +234,7 @@ ansible-playbook tooling-exploitation.yml --ask-become-pass
 ansible-playbook tooling-reversing.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
 ansible-playbook docker.yml --ask-become-pass
+ansible-playbook customization.yml --ask-become-pass
 ansible-playbook mirror-sync.yml --ask-become-pass
 ansible-playbook mirror-enable.yml --ask-become-pass
 ```
@@ -276,6 +281,57 @@ You can override individual values in `hardening_sysctl` by defining the **entir
 mapping** in `local.yml`; Ansible replaces dictionaries by default. Removing a
 previously managed key does not restore its live value automatically. Restore it
 explicitly or reboot after removing it from the managed configuration.
+
+### User and desktop customization
+
+`customization.yml` configures the primary desktop account. By default it selects
+the account with UID 1000. If the intended user has another UID, set its exact
+name in `local.yml`:
+
+```yaml
+customization_user: your_username
+```
+
+The playbook adds that account to the `sudo` group and grants it passwordless
+sudo through `/etc/sudoers.d/deburner-desktop-user`. This gives every process
+running as the account a direct path to root privileges, which is intentional for
+this disposable CTF workstation. The rule applies only to the selected account.
+
+GNOME uses its dark color preference and the dark Adwaita GTK theme. The role
+also configures click-to-focus, a one-hour screen idle delay, US and Finnish
+keyboard layouts, two-finger natural touchpad scrolling, a 24-hour clock with
+seconds and weekday, battery percentage, disabled hot corners, and calendar week
+numbers. Automatic media mounting and opening are disabled.
+
+GNOME automatic suspend is disabled on AC and battery power. A systemd-logind
+drop-in ignores lid-close events on battery, external power, and while docked.
+Reboot after provisioning to make the logind settings effective; the playbook
+does not restart logind underneath the active graphical session. Explicit
+shutdown and reboot commands continue to work.
+
+The role installs GNOME Terminal and copies the repository's managed `.vimrc`
+and Monokai color scheme into the selected user's home. Bash retains up to one
+million in-memory commands and five million commands in its history file.
+Ctrl+Backspace deletes the preceding word, grep uses automatic color, and the
+managed `.bash_aliases` block provides `copy`, `bat`, and `rot13` aliases.
+
+The customization dependencies include fzf, fd-find (`fdfind`), ripgrep, bat,
+wl-clipboard, and the commands used by the configured previews. The managed fzf
+configuration enables key bindings, completions, fd-based path generation, and
+command-specific previews. Its `fzf-preview.sh` helper is installed in `~/bin`.
+Debian's default login profile adds that directory to `PATH` after the next login.
+
+The managed Zed settings enable Vim mode, use the Sublime Text keymap and a dark
+Gruvbox theme, disable AI features and telemetry, and configure the requested
+panels, language behavior, and compiler integrations. Rust Analyzer comes from
+the shared upstream stable Rust toolchain at `/usr/local/bin/rust-analyzer`, so
+the settings do not contain a machine-specific home-directory path.
+
+The role also creates `~/.ssh/cm_socket` and a managed block in `~/.ssh/config`
+that enables SSH client connection multiplexing and a 60-second server-alive
+interval. This does not enable the incoming SSH server, which remains masked by
+the hardening role. Existing Bash aliases and SSH configuration outside the
+marked blocks are preserved. Git identity is not configured.
 
 ### Docker
 
@@ -324,7 +380,8 @@ globally with pip or change shell and editor configuration.
 Rust comes from the official upstream rustup distribution rather than Debian's
 `rustc` and `cargo` packages. The role verifies the published rustup-init SHA-256
 checksum and installs the latest stable default-profile toolchain under `/opt`.
-The compiler, Cargo, Clippy, rustfmt and related commands are available through
+The role also installs the upstream Rust Analyzer component. The compiler,
+Cargo, Clippy, rustfmt, Rust Analyzer and related commands are available through
 `/usr/local/bin`. Rerunning the role while online updates the stable toolchain.
 Cargo continues to use each user's own writable `~/.cargo` directory for package
 downloads and `cargo install` output. The shared toolchain is root-managed, so
@@ -409,20 +466,29 @@ with `tooling_exploitation_packages` in `local.yml` if needed.
 ### Reverse-engineering tooling
 
 `tooling-reversing.yml` installs the latest stable Ghidra, Binary Ninja Free and
-radare2 releases available when the playbook runs. Ghidra and Binary Ninja are
-extracted into versioned directories under `/opt`, with stable commands and GNOME
-launchers. radare2 is installed from its upstream amd64 Debian package because
-Debian 13 does not provide it. Ghidra's required OpenJDK 21 comes from Debian.
+radare2 releases available when the playbook runs. It also builds pycdc and its
+`pycdas` bytecode disassembler from the current upstream branch. Ghidra, Binary
+Ninja and pycdc use versioned directories under `/opt`, with stable commands for
+each tool and GNOME launchers for the graphical applications. radare2 is
+installed from its upstream amd64 Debian package because Debian 13 does not
+provide it. Ghidra's required OpenJDK 21 and pycdc's build dependencies come from
+Debian.
 
-The role queries each project's official GitHub latest-release endpoint. It uses
-the versioned asset URL and SHA-256 digest returned by that release metadata, so
-the digest checks the downloaded file without holding the installation to a
-repository-pinned version. Because the metadata and artifact come from the same
-upstream account, this is a download-integrity check rather than independent
-supply-chain verification. The API queries are unauthenticated so no GitHub token
-is stored; GitHub can rate-limit many machines sharing one public address.
-Downloads require Internet access and are not supplied by the future Debian
-mirror.
+For the three released tools, the role queries each project's official GitHub
+latest-release endpoint. It uses the versioned asset URL and SHA-256 digest
+returned by that release metadata, so the digest checks the downloaded file
+without holding the installation to a repository-pinned version. Because the
+metadata and artifact come from the same upstream account, this is a
+download-integrity check rather than independent supply-chain verification. The
+API queries are unauthenticated so no GitHub token is stored; GitHub can
+rate-limit many machines sharing one public address. Downloads require Internet
+access and are not supplied by the future Debian mirror.
+
+pycdc does not publish releases or official binary artifacts. The role resolves
+the current commit from its official GitHub repository, clones that exact commit,
+and builds it with CMake. The commit-addressed installation keeps reruns
+idempotent while allowing a fresh provisioning run to use the newest upstream
+code. Git transport provides no independent checksum or release-signature check.
 
 Binary Ninja Free requires no account or license key. Its use remains subject to
 [Vector 35's Binary Ninja Free license](https://binary.ninja/free/), including
@@ -557,8 +623,9 @@ or Burp Suite.
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
 | Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
-| Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; add stable commands and desktop launchers | Provide current native and Java reverse-engineering tools without accounts or stored license keys |
+| Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; build the current pycdc and pycdas; add stable commands and desktop launchers | Provide current native, Python-bytecode and Java reverse-engineering tools without accounts or stored license keys |
 | Web tooling | Resolve and install the current Burp Suite Community JAR with a command and desktop launcher | Provide a current account-free web proxy and testing toolkit |
+| Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and optional mirror-sync playbooks with one command while retaining individual category entry points |
 
@@ -637,7 +704,5 @@ not the end-of-event sanitization procedure.
   remains deferred. WayVNC supports wlroots-based compositors and explicitly does
   not support GNOME, so it cannot meet the current desktop requirement. See the
   [WayVNC compatibility note](https://github.com/any1/wayvnc#introduction).
-- **Customizations:** personal shell, terminal, editor and GNOME preferences,
-  kept separate from the security and tooling roles.
 
-These categories are recorded requirements, not implemented playbooks yet.
+Screen sharing remains a recorded requirement, not an implemented playbook.

@@ -481,6 +481,7 @@ def create_source_iso(config: Config) -> None:
     (config.source_tree_path / "local.yml").write_text(
         "---\n"
         "# Generated only for the disposable integration-test guest.\n"
+        "customization_user: debian\n"
         "offline_mirror_enabled: false\n"
     )
     run(

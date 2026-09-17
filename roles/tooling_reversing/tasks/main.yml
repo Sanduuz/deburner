@@ -10,6 +10,8 @@
       - tooling_reversing_ghidra_release_api is match('^https://api\.github\.com/')
       - tooling_reversing_binary_ninja_release_api is match('^https://api\.github\.com/')
       - tooling_reversing_radare2_release_api is match('^https://api\.github\.com/')
+      - tooling_reversing_pycdc_repository == 'https://github.com/zrax/pycdc.git'
+      - tooling_reversing_pycdc_branch is match('^[A-Za-z0-9._/-]+$')
     fail_msg: Review the reverse-engineering tooling variables; one or more values are invalid.
 
 - name: Install reverse-engineering runtime packages
@@ -245,3 +247,96 @@
   ansible.builtin.apt:
     deb: "/var/cache/deburner/{{ tooling_reversing_radare2_asset.name }}"
     state: present
+
+- name: Resolve the current pycdc commit
+  ansible.builtin.command:
+    argv:
+      - git
+      - ls-remote
+      - --exit-code
+      - "{{ tooling_reversing_pycdc_repository }}"
+      - "refs/heads/{{ tooling_reversing_pycdc_branch }}"
+  register: tooling_reversing_pycdc_remote
+  changed_when: false
+
+- name: Validate the current pycdc commit
+  ansible.builtin.assert:
+    that:
+      - tooling_reversing_pycdc_remote.stdout_lines | length == 1
+      - tooling_reversing_pycdc_remote.stdout.split()[0] is match('^[0-9a-f]{40}$')
+    fail_msg: The pycdc repository did not return one valid branch commit.
+
+- name: Define the current pycdc paths
+  ansible.builtin.set_fact:
+    tooling_reversing_pycdc_commit: "{{ tooling_reversing_pycdc_remote.stdout.split()[0] }}"
+    tooling_reversing_pycdc_source_dir: >-
+      /var/cache/deburner/pycdc-{{ tooling_reversing_pycdc_remote.stdout.split()[0] }}
+    tooling_reversing_pycdc_install_dir: >-
+      /opt/pycdc-{{ tooling_reversing_pycdc_remote.stdout.split()[0] }}
+
+- name: Check whether the current pycdc commit is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_reversing_pycdc_install_dir }}/bin/pycdc"
+  register: tooling_reversing_pycdc_executable
+
+- name: Build and install the current pycdc commit
+  when: not tooling_reversing_pycdc_executable.stat.exists
+  block:
+    - name: Clone the current pycdc commit
+      ansible.builtin.git:
+        repo: "{{ tooling_reversing_pycdc_repository }}"
+        dest: "{{ tooling_reversing_pycdc_source_dir }}"
+        version: "{{ tooling_reversing_pycdc_commit }}"
+        recursive: false
+        force: true
+
+    - name: Configure the pycdc build
+      ansible.builtin.command:
+        argv:
+          - cmake
+          - -S
+          - "{{ tooling_reversing_pycdc_source_dir }}"
+          - -B
+          - "{{ tooling_reversing_pycdc_source_dir }}/build"
+          - -DCMAKE_BUILD_TYPE=Release
+          - "-DCMAKE_INSTALL_PREFIX={{ tooling_reversing_pycdc_install_dir }}"
+      changed_when: true
+
+    - name: Build pycdc
+      ansible.builtin.command:
+        argv:
+          - cmake
+          - --build
+          - "{{ tooling_reversing_pycdc_source_dir }}/build"
+          - --parallel
+      changed_when: true
+
+    - name: Install pycdc
+      ansible.builtin.command:
+        argv:
+          - cmake
+          - --install
+          - "{{ tooling_reversing_pycdc_source_dir }}/build"
+      changed_when: true
+
+    - name: Remove the pycdc build tree
+      ansible.builtin.file:
+        path: "{{ tooling_reversing_pycdc_source_dir }}"
+        state: absent
+
+- name: Create the stable pycdc path
+  ansible.builtin.file:
+    src: "{{ tooling_reversing_pycdc_install_dir }}"
+    dest: /opt/pycdc
+    state: link
+    force: true
+
+- name: Expose the pycdc commands
+  ansible.builtin.file:
+    src: "/opt/pycdc/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - pycdc
+    - pycdas

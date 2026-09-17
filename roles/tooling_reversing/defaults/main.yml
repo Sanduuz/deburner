@@ -1,5 +1,8 @@
 ---
 tooling_reversing_packages:
+  - build-essential
+  - cmake
+  - git
   - openjdk-21-jdk
   - unzip
   - xz-utils
@@ -11,3 +14,5 @@ tooling_reversing_github_api_headers:
 tooling_reversing_ghidra_release_api: https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest
 tooling_reversing_binary_ninja_release_api: https://api.github.com/repos/Vector35/binaryninja-api/releases/latest
 tooling_reversing_radare2_release_api: https://api.github.com/repos/radareorg/radare2/releases/latest
+tooling_reversing_pycdc_repository: https://github.com/zrax/pycdc.git
+tooling_reversing_pycdc_branch: master

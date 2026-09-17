@@ -120,16 +120,66 @@ def verify_docker() -> None:
         record(configuration.get("live-restore") is True, "Docker live restore is enabled")
 
 
+def verify_customization() -> None:
+    passwd = run(["getent", "passwd", "debian"])
+    record(passwd.returncode == 0, "customization user exists", passwd.stderr.strip())
+    groups = run(["id", "-nG", "debian"])
+    record(
+        groups.returncode == 0 and "sudo" in groups.stdout.split(),
+        "customization user belongs to sudo",
+        groups.stdout.strip(),
+    )
+    command_succeeds(
+        ["runuser", "-u", "debian", "--", "sudo", "-n", "true"],
+        "customization user has passwordless sudo",
+    )
+    file_exists("/etc/systemd/logind.conf.d/90-deburner-lid-switch.conf")
+    file_exists("/home/debian/.vimrc")
+    file_exists("/home/debian/.vim/colors/monokai.vim")
+    file_exists("/home/debian/.bash_aliases")
+    file_exists("/home/debian/bin/fzf-preview.sh", executable=True)
+    file_exists("/home/debian/.config/zed/settings.json")
+    file_exists("/home/debian/.ssh/config")
+    record(Path("/home/debian/.ssh/cm_socket").is_dir(), "SSH multiplexing directory exists")
+    command_succeeds(["bash", "-n", "/home/debian/.bashrc"], "Bash configuration is valid")
+    command_succeeds(["bash", "-n", "/home/debian/.bash_aliases"], "Bash aliases are valid")
+
+    gsettings = run(
+        [
+            "runuser",
+            "-u",
+            "debian",
+            "--",
+            "env",
+            "HOME=/home/debian",
+            "dbus-run-session",
+            "--",
+            "gsettings",
+            "get",
+            "org.gnome.desktop.interface",
+            "color-scheme",
+        ]
+    )
+    record(
+        gsettings.returncode == 0 and gsettings.stdout.strip() == "'prefer-dark'",
+        "GNOME prefers the dark color scheme",
+        (gsettings.stderr or gsettings.stdout).strip(),
+    )
+
+
 def verify_tooling() -> None:
     commands = [
         "7z",
         "binwalk",
+        "batcat",
         "burpsuite",
         "cargo",
         "checksec",
         "chromium",
         "curl",
         "exiftool",
+        "fdfind",
+        "fzf",
         "gdb",
         "gdb-multiarch",
         "ghidra",
@@ -141,9 +191,12 @@ def verify_tooling() -> None:
         "nmap",
         "openvpn",
         "pwn",
+        "pycdas",
+        "pycdc",
         "r2",
         "rg",
         "rustc",
+        "rust-analyzer",
         "sqlite3",
         "strace",
         "tcpdump",
@@ -152,6 +205,7 @@ def verify_tooling() -> None:
         "vol",
         "volatility2",
         "wg",
+        "wl-copy",
         "yara",
         "zed",
     ]
@@ -172,6 +226,7 @@ def main() -> int:
     verify_platform()
     verify_hardening()
     verify_docker()
+    verify_customization()
     verify_tooling()
     print(f"\nVerification summary: {len(PASSES)} passed, {len(FAILURES)} failed")
     if FAILURES:

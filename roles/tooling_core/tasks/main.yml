@@ -13,6 +13,9 @@
       - tooling_core_rustup_archive is match('^/var/cache/deburner/')
       - tooling_core_rustup_profile in ['minimal', 'default', 'complete']
       - tooling_core_rustup_toolchain == 'stable'
+      - tooling_core_rust_components | type_debug == 'list'
+      - tooling_core_rust_components | length > 0
+      - tooling_core_rust_components | select('match', '^[a-z0-9][a-z0-9-]*$') | list | length == tooling_core_rust_components | length
       - tooling_core_rust_commands | type_debug == 'list'
       - tooling_core_rust_commands | length > 0
       - tooling_core_rust_commands | select('match', '^[a-z0-9][a-z0-9-]*$') | list | length == tooling_core_rust_commands | length
@@ -100,6 +103,37 @@
   changed_when: >-
     'unchanged' not in (tooling_core_rust_update.stdout + tooling_core_rust_update.stderr)
     or 'rustup updated' in (tooling_core_rust_update.stdout + tooling_core_rust_update.stderr)
+
+- name: Read installed upstream Rust components
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_core_rustup_cargo_home }}/bin/rustup"
+      - component
+      - list
+      - --installed
+      - --toolchain
+      - "{{ tooling_core_rustup_toolchain }}"
+  environment:
+    RUSTUP_HOME: "{{ tooling_core_rustup_home }}"
+    CARGO_HOME: "{{ tooling_core_rustup_cargo_home }}"
+  register: tooling_core_installed_rust_components
+  changed_when: false
+
+- name: Install upstream Rust components
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_core_rustup_cargo_home }}/bin/rustup"
+      - component
+      - add
+      - "{{ item }}"
+      - --toolchain
+      - "{{ tooling_core_rustup_toolchain }}"
+  environment:
+    RUSTUP_HOME: "{{ tooling_core_rustup_home }}"
+    CARGO_HOME: "{{ tooling_core_rustup_cargo_home }}"
+  loop: "{{ tooling_core_rust_components }}"
+  when: item + '-' + tooling_core_rustup_target not in tooling_core_installed_rust_components.stdout_lines
+  changed_when: true
 
 - name: Expose the stable Rust commands
   ansible.builtin.file:

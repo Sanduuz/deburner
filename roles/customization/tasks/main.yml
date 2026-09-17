@@ -1,0 +1,281 @@
+---
+- name: Validate customization variables
+  ansible.builtin.assert:
+    that:
+      - customization_user is string
+      - customization_user == '' or customization_user is match('^[a-z_][a-z0-9_-]*[$]?$')
+      - customization_zed_rust_analyzer_path is match('^/[A-Za-z0-9_./-]+$')
+      - customization_packages | type_debug == 'list'
+      - customization_packages | length > 0
+      - customization_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == customization_packages | length
+      - customization_gnome_settings | type_debug == 'list'
+      - customization_gnome_settings | length > 0
+    fail_msg: Review the customization variables; one or more values are invalid.
+
+- name: Resolve the desktop user
+  ansible.builtin.command:
+    argv:
+      - getent
+      - passwd
+      - "{{ customization_user if customization_user | length > 0 else '1000' }}"
+  register: customization_passwd
+  changed_when: false
+  failed_when: false
+
+- name: Validate the desktop user
+  ansible.builtin.assert:
+    that:
+      - customization_passwd.rc == 0
+      - customization_passwd.stdout_lines | length == 1
+      - customization_passwd.stdout.split(':') | length == 7
+      - customization_passwd.stdout.split(':')[0] != 'root'
+      - customization_passwd.stdout.split(':')[2] | int >= 1000
+      - customization_passwd.stdout.split(':')[5] is match('^/home/[^/]+$')
+    fail_msg: >-
+      The customization account could not be resolved safely. Set customization_user
+      in local.yml to the intended non-root desktop account.
+
+- name: Record the desktop account
+  ansible.builtin.set_fact:
+    customization_effective_user: "{{ customization_passwd.stdout.split(':')[0] }}"
+    customization_effective_group: "{{ customization_passwd.stdout.split(':')[3] }}"
+    customization_effective_home: "{{ customization_passwd.stdout.split(':')[5] }}"
+
+- name: Install customization dependencies
+  ansible.builtin.apt:
+    name: "{{ customization_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Add the desktop user to the sudo group
+  ansible.builtin.user:
+    name: "{{ customization_effective_user }}"
+    groups:
+      - sudo
+    append: true
+
+- name: Allow passwordless sudo for the desktop user
+  ansible.builtin.template:
+    src: passwordless-sudo.j2
+    dest: /etc/sudoers.d/deburner-desktop-user
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Create the logind drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/logind.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Disable automatic suspend when the lid closes
+  ansible.builtin.copy:
+    src: lid-switch.conf
+    dest: /etc/systemd/logind.conf.d/90-deburner-lid-switch.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read current GNOME settings
+  become: true
+  become_user: "{{ customization_effective_user }}"
+  ansible.builtin.command:
+    argv:
+      - dbus-run-session
+      - --
+      - gsettings
+      - get
+      - "{{ item.schema }}"
+      - "{{ item.key }}"
+  environment:
+    HOME: "{{ customization_effective_home }}"
+  loop: "{{ customization_gnome_settings }}"
+  loop_control:
+    label: "{{ item.schema }} {{ item.key }}"
+  register: customization_gnome_current
+  changed_when: false
+
+- name: Apply GNOME settings
+  become: true
+  become_user: "{{ customization_effective_user }}"
+  ansible.builtin.command:
+    argv:
+      - dbus-run-session
+      - --
+      - gsettings
+      - set
+      - "{{ item.item.schema }}"
+      - "{{ item.item.key }}"
+      - "{{ item.item.value }}"
+  environment:
+    HOME: "{{ customization_effective_home }}"
+  loop: "{{ customization_gnome_current.results }}"
+  loop_control:
+    label: "{{ item.item.schema }} {{ item.item.key }}"
+  when: item.stdout | trim != item.item.value
+  changed_when: true
+
+- name: Create the Vim colors directory
+  ansible.builtin.file:
+    path: "{{ customization_effective_home }}/.vim/colors"
+    state: directory
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0755'
+
+- name: Install the Vim configuration
+  ansible.builtin.copy:
+    src: vimrc
+    dest: "{{ customization_effective_home }}/.vimrc"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0644'
+
+- name: Install the Vim Monokai color scheme
+  ansible.builtin.copy:
+    src: monokai.vim
+    dest: "{{ customization_effective_home }}/.vim/colors/monokai.vim"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0644'
+
+- name: Increase the Bash history limits
+  ansible.builtin.lineinfile:
+    path: "{{ customization_effective_home }}/.bashrc"
+    regexp: "^{{ item.name }}="
+    line: "{{ item.name }}={{ item.value }}"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0644'
+  loop:
+    - name: HISTSIZE
+      value: '1000000'
+    - name: HISTFILESIZE
+      value: '5000000'
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Enable colored grep output
+  ansible.builtin.lineinfile:
+    path: "{{ customization_effective_home }}/.bashrc"
+    regexp: "^\\s*#?\\s*alias grep='grep --color=auto'$"
+    line: "    alias grep='grep --color=auto'"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0644'
+
+- name: Configure Bash key bindings and fzf
+  ansible.builtin.blockinfile:
+    path: "{{ customization_effective_home }}/.bashrc"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0644'
+    marker: '# {mark} DEBURNER BASH CONFIGURATION'
+    block: |
+      bind '"\C-H": backward-kill-word'
+
+      source /usr/share/doc/fzf/examples/key-bindings.bash
+      export FZF_CTRL_T_OPTS="
+          --height 100%
+          --preview 'fzf-preview.sh {}'
+          --bind 'ctrl-/:change-preview-window(down|hidden|)'
+          --preview-window right,50%"
+
+      export FZF_ALT_C_OPTS="--preview 'tree -C {}'"
+      source /usr/share/bash-completion/completions/fzf
+      export FZF_COMPLETION_OPTS='--border --info=inline'
+
+      _fzf_compgen_path() {
+          fdfind --hidden --follow --exclude ".git" --exclude ".wine" --exclude ".wine32" . "$1"
+      }
+
+      _fzf_compgen_dir() {
+          fdfind --type d --hidden --follow --exclude ".git" --exclude ".wine" --exclude ".wine32" . "$1"
+      }
+
+      _fzf_comprun() {
+          local command=$1
+          shift
+
+          case "$command" in
+              cd)           fzf --preview 'tree -C {} | head -200' "$@" ;;
+              export|unset) fzf --preview "eval 'echo \$'{}" "$@" ;;
+              ssh)          fzf --preview 'dig {}' "$@" ;;
+              *)            fzf --preview 'batcat -n --theme "Monokai Extended" --color=always {}' "$@" ;;
+          esac
+      }
+
+- name: Configure Bash aliases
+  ansible.builtin.blockinfile:
+    path: "{{ customization_effective_home }}/.bash_aliases"
+    create: true
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0644'
+    marker: '# {mark} DEBURNER ALIASES'
+    block: |
+      alias copy='wl-copy'
+      alias bat='batcat'
+      alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
+
+- name: Create the user bin directory
+  ansible.builtin.file:
+    path: "{{ customization_effective_home }}/bin"
+    state: directory
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0755'
+
+- name: Install the fzf preview helper
+  ansible.builtin.copy:
+    src: fzf-preview.sh
+    dest: "{{ customization_effective_home }}/bin/fzf-preview.sh"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0755'
+
+- name: Create the Zed configuration directory
+  ansible.builtin.file:
+    path: "{{ customization_effective_home }}/.config/zed"
+    state: directory
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0700'
+
+- name: Install the Zed settings
+  ansible.builtin.template:
+    src: zed-settings.json.j2
+    dest: "{{ customization_effective_home }}/.config/zed/settings.json"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0600'
+
+- name: Create the SSH multiplexing socket directory
+  ansible.builtin.file:
+    path: "{{ customization_effective_home }}/.ssh/cm_socket"
+    state: directory
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0700'
+
+- name: Configure SSH connection multiplexing
+  ansible.builtin.blockinfile:
+    path: "{{ customization_effective_home }}/.ssh/config"
+    create: true
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0600'
+    marker: '# {mark} DEBURNER CONTROLMaster'
+    block: |
+      Host *
+          ControlMaster auto
+          ControlPath ~/.ssh/cm_socket/ssh-%r@%h:%p
+          ServerAliveInterval 60
+
+- name: Explain when lid handling changes
+  ansible.builtin.debug:
+    msg: Reboot after provisioning to apply the systemd-logind lid-switch configuration.

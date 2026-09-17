@@ -1,0 +1,85 @@
+---
+# Leave empty to configure the account with UID 1000. Set the exact local
+# account name when the intended desktop user has another UID.
+customization_user: ''
+customization_zed_rust_analyzer_path: /usr/local/bin/rust-analyzer
+
+customization_packages:
+  - bat
+  - bind9-dnsutils
+  - dconf-cli
+  - fd-find
+  - file
+  - fzf
+  - gnome-terminal
+  - ripgrep
+  - sudo
+  - tree
+  - vim
+  - wl-clipboard
+
+# Values use GVariant syntax accepted by gsettings.
+customization_gnome_settings:
+  - schema: org.gnome.desktop.wm.preferences
+    key: focus-mode
+    value: "'click'"
+  - schema: org.gnome.desktop.session
+    key: idle-delay
+    value: uint32 3600
+  - schema: org.gnome.settings-daemon.plugins.power
+    key: sleep-inactive-ac-timeout
+    value: '0'
+  - schema: org.gnome.settings-daemon.plugins.power
+    key: sleep-inactive-ac-type
+    value: "'nothing'"
+  - schema: org.gnome.settings-daemon.plugins.power
+    key: sleep-inactive-battery-timeout
+    value: '0'
+  - schema: org.gnome.settings-daemon.plugins.power
+    key: sleep-inactive-battery-type
+    value: "'nothing'"
+  - schema: org.gnome.desktop.peripherals.touchpad
+    key: two-finger-scrolling-enabled
+    value: 'true'
+  - schema: org.gnome.desktop.peripherals.touchpad
+    key: natural-scroll
+    value: 'true'
+  - schema: org.gnome.desktop.peripherals.touchpad
+    key: speed
+    value: '0.20000000000000001'
+  - schema: org.gnome.desktop.peripherals.mouse
+    key: natural-scroll
+    value: 'false'
+  - schema: org.gnome.desktop.interface
+    key: color-scheme
+    value: "'prefer-dark'"
+  - schema: org.gnome.desktop.interface
+    key: gtk-theme
+    value: "'Adwaita-dark'"
+  - schema: org.gnome.desktop.interface
+    key: clock-show-seconds
+    value: 'true'
+  - schema: org.gnome.desktop.interface
+    key: clock-show-weekday
+    value: 'true'
+  - schema: org.gnome.desktop.interface
+    key: show-battery-percentage
+    value: 'true'
+  - schema: org.gnome.desktop.interface
+    key: enable-hot-corners
+    value: 'false'
+  - schema: org.gnome.desktop.interface
+    key: clock-format
+    value: "'24h'"
+  - schema: org.gnome.desktop.media-handling
+    key: automount
+    value: 'false'
+  - schema: org.gnome.desktop.media-handling
+    key: automount-open
+    value: 'false'
+  - schema: org.gnome.desktop.input-sources
+    key: sources
+    value: "[('xkb', 'us'), ('xkb', 'fi')]"
+  - schema: org.gnome.desktop.calendar
+    key: show-weekdate
+    value: 'true'
