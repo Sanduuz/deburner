@@ -1,0 +1,22 @@
+---
+tooling_c2_packages:
+  - ca-certificates
+  - gawk
+  - git
+  - gnupg
+  - jq
+  - mingw-w64
+  - rsync
+  - unzip
+
+tooling_c2_sliver_release_api: https://api.github.com/repos/BishopFox/sliver/releases/latest
+
+tooling_c2_metasploit_key_url: https://apt.metasploit.com/metasploit-framework.gpg.key
+tooling_c2_metasploit_key_fingerprint: 97B32012EA1176F053727A95C048F0B49DEEC457
+tooling_c2_metasploit_repository: https://downloads.metasploit.com/data/releases/metasploit-framework/apt
+tooling_c2_metasploit_suite: lucid
+
+tooling_c2_tuoni_repository: https://github.com/shell-dot/tuoni.git
+tooling_c2_tuoni_install_dir: /srv/tuoni
+tooling_c2_tuoni_stage_images: true
+tooling_c2_tuoni_pull_timeout: 3600

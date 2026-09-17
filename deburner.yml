@@ -40,6 +40,9 @@
 - name: Install Docker tooling
   ansible.builtin.import_playbook: docker.yml
 
+- name: Install command-and-control tooling
+  ansible.builtin.import_playbook: tooling-c2.yml
+
 - name: Stage optional BloodHound Community Edition tooling
   ansible.builtin.import_playbook: tooling-bloodhound.yml
 

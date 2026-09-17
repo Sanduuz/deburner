@@ -1,0 +1,114 @@
+---
+- name: Resolve the current Tuoni source revision
+  ansible.builtin.command:
+    argv:
+      - git
+      - ls-remote
+      - --exit-code
+      - "{{ tooling_c2_tuoni_repository }}"
+      - HEAD
+  register: tooling_c2_tuoni_head
+  changed_when: false
+
+- name: Validate the current Tuoni source revision
+  ansible.builtin.assert:
+    that:
+      - tooling_c2_tuoni_head.stdout.split() | length == 2
+      - tooling_c2_tuoni_head.stdout.split()[0] is match('^[0-9a-f]{40}$')
+      - tooling_c2_tuoni_head.stdout.split()[1] == 'HEAD'
+    fail_msg: The current Tuoni source revision could not be resolved.
+
+- name: Record the current Tuoni source revision
+  ansible.builtin.set_fact:
+    tooling_c2_tuoni_commit: "{{ tooling_c2_tuoni_head.stdout.split()[0] }}"
+
+- name: Install the current Tuoni source
+  ansible.builtin.git:
+    repo: "{{ tooling_c2_tuoni_repository }}"
+    dest: "{{ tooling_c2_tuoni_install_dir }}"
+    version: "{{ tooling_c2_tuoni_commit }}"
+    recursive: false
+    update: true
+
+- name: Read the Tuoni version declaration
+  ansible.builtin.slurp:
+    src: "{{ tooling_c2_tuoni_install_dir }}/version.yml"
+  register: tooling_c2_tuoni_version_file
+
+- name: Extract the Tuoni release version
+  ansible.builtin.set_fact:
+    tooling_c2_tuoni_versions: >-
+      {{ tooling_c2_tuoni_version_file.content
+         | b64decode
+         | regex_findall('(?m)^version:\s*([0-9]+(?:\.[0-9]+)+)\s*$') }}
+
+- name: Validate the Tuoni release version
+  ansible.builtin.assert:
+    that:
+      - tooling_c2_tuoni_versions | length == 1
+    fail_msg: Tuoni's version.yml did not contain one recognizable release version.
+
+- name: Record the Tuoni release and image names
+  ansible.builtin.set_fact:
+    tooling_c2_tuoni_version: "{{ tooling_c2_tuoni_versions[0] }}"
+    tooling_c2_tuoni_images:
+      - "ghcr.io/shell-dot/tuoni/server:{{ tooling_c2_tuoni_versions[0] }}"
+      - "ghcr.io/shell-dot/tuoni/client:{{ tooling_c2_tuoni_versions[0] }}"
+      - "ghcr.io/shell-dot/tuoni/docs:{{ tooling_c2_tuoni_versions[0] }}"
+      - "ghcr.io/shell-dot/tuoni/utility:{{ tooling_c2_tuoni_versions[0] }}"
+      - nginx:alpine
+
+- name: Check for the Tuoni environment file
+  ansible.builtin.stat:
+    path: "{{ tooling_c2_tuoni_install_dir }}/config/tuoni.env"
+  register: tooling_c2_tuoni_environment
+
+- name: Prepare the Tuoni environment file
+  ansible.builtin.copy:
+    src: "{{ tooling_c2_tuoni_install_dir }}/config/example/example.tuoni.env"
+    dest: "{{ tooling_c2_tuoni_install_dir }}/config/tuoni.env"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0600'
+  when: not tooling_c2_tuoni_environment.stat.exists
+
+- name: Check for staged Tuoni container images
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - image
+      - inspect
+      - "{{ item }}"
+  loop: "{{ tooling_c2_tuoni_images }}"
+  loop_control:
+    label: "{{ item }}"
+  register: tooling_c2_tuoni_image_checks
+  changed_when: false
+  failed_when: false
+  when: tooling_c2_tuoni_stage_images | bool
+
+- name: Stage the Tuoni container images
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - image
+      - pull
+      - "{{ item.item }}"
+  loop: "{{ tooling_c2_tuoni_image_checks.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  async: "{{ tooling_c2_tuoni_pull_timeout }}"
+  poll: 10
+  changed_when: true
+  when:
+    - tooling_c2_tuoni_stage_images | bool
+    - item.rc | default(0) != 0
+
+- name: Install the Tuoni command wrapper
+  ansible.builtin.template:
+    src: tuoni.sh.j2
+    dest: /usr/local/bin/tuoni
+    owner: root
+    group: root
+    mode: '0755'

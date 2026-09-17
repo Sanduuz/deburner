@@ -1,0 +1,71 @@
+---
+- name: Validate C2 tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_c2_packages | type_debug == 'list'
+      - tooling_c2_packages | length > 0
+      - tooling_c2_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_c2_packages | length
+      - tooling_c2_sliver_release_api == 'https://api.github.com/repos/BishopFox/sliver/releases/latest'
+      - tooling_c2_metasploit_key_url == 'https://apt.metasploit.com/metasploit-framework.gpg.key'
+      - tooling_c2_metasploit_key_fingerprint is match('^[A-F0-9]{40}$')
+      - tooling_c2_metasploit_repository == 'https://downloads.metasploit.com/data/releases/metasploit-framework/apt'
+      - tooling_c2_metasploit_suite == 'lucid'
+      - tooling_c2_tuoni_repository == 'https://github.com/shell-dot/tuoni.git'
+      - tooling_c2_tuoni_install_dir == '/srv/tuoni'
+      - tooling_c2_tuoni_stage_images | type_debug == 'bool'
+      - tooling_c2_tuoni_pull_timeout | int >= 600
+    fail_msg: Review the C2 tooling variables; one or more values are invalid.
+
+- name: Install C2 tooling dependencies
+  ansible.builtin.apt:
+    name: "{{ tooling_c2_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check for the upstream Docker installation
+  ansible.builtin.stat:
+    path: /usr/bin/docker
+  register: tooling_c2_docker
+
+- name: Require Docker before installing C2 tooling
+  ansible.builtin.assert:
+    that:
+      - tooling_c2_docker.stat.exists
+      - tooling_c2_docker.stat.executable
+    fail_msg: Run docker.yml before tooling-c2.yml so Docker and Compose are available for Tuoni.
+
+- name: Check Docker and Compose availability
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - compose
+      - version
+  changed_when: false
+
+- name: Check Docker daemon availability
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - info
+  changed_when: false
+
+- name: Create the C2 tooling artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Sliver
+  ansible.builtin.include_tasks: sliver.yml
+
+- name: Install Metasploit Framework
+  ansible.builtin.include_tasks: metasploit.yml
+
+- name: Install and stage Tuoni
+  ansible.builtin.include_tasks: tuoni.yml

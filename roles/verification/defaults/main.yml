@@ -40,6 +40,8 @@ verification_required_commands:
   - ligolo-agent
   - ligolo-proxy
   - meld
+  - msfconsole
+  - msfvenom
   - netexec
   - nikto
   - nmap
@@ -58,12 +60,15 @@ verification_required_commands:
   - rustup
   - sqlite3
   - smbclient
+  - sliver-client
+  - sliver-server
   - sqlmap
   - sshuttle
   - strace
   - tcpdump
   - testssl.sh
   - tshark
+  - tuoni
   - uv
   - vol
   - volatility2
@@ -78,6 +83,7 @@ verification_required_commands:
 
 verification_required_system_files:
   - /etc/apt/apt.conf.d/99deburner-updates
+  - /etc/apt/sources.list.d/metasploit-framework.sources
   - /etc/deburner/firewall.nft
   - /etc/docker/daemon.json
   - /etc/gdb/gdbinit.d/peda.gdb
@@ -91,10 +97,13 @@ verification_required_system_files:
   - /opt/ligolo-ng/proxy
   - /opt/nikto/program/nikto.pl
   - /opt/peda/peda.py
+  - /opt/sliver/sliver-client
+  - /opt/sliver/sliver-server
   - /opt/sqlmap/sqlmap.py
   - /opt/testssl.sh/testssl.sh
   - /opt/ysoserial/ysoserial-all.jar
   - /usr/share/seclists/README.md
+  - /srv/tuoni/tuoni
 
 verification_required_user_files:
   - .bash_aliases

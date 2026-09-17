@@ -12,6 +12,9 @@ preflight_required_endpoints:
   - name: Docker package repository
     url: https://download.docker.com/linux/debian/dists/trixie/InRelease
     marker: 'Origin: Docker'
+  - name: Metasploit package repository
+    url: https://downloads.metasploit.com/data/releases/metasploit-framework/apt/dists/lucid/InRelease
+    marker: 'Origin: Metasploit Framework'
   - name: GitHub release API
     url: https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest
     marker: '"tag_name"'

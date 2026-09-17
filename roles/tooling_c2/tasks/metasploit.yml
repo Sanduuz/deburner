@@ -1,0 +1,58 @@
+---
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the Metasploit repository signing key
+  ansible.builtin.get_url:
+    url: "{{ tooling_c2_metasploit_key_url }}"
+    dest: /etc/apt/keyrings/metasploit-framework.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read the Metasploit signing key fingerprint
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/gpg
+      - --batch
+      - --show-keys
+      - --with-colons
+      - /etc/apt/keyrings/metasploit-framework.asc
+  register: tooling_c2_metasploit_key_details
+  changed_when: false
+  failed_when: tooling_c2_metasploit_key_fingerprint not in tooling_c2_metasploit_key_details.stdout
+
+- name: Configure the official Metasploit repository
+  ansible.builtin.template:
+    src: metasploit.sources.j2
+    dest: /etc/apt/sources.list.d/metasploit-framework.sources
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Pin packages from the Metasploit repository
+  ansible.builtin.copy:
+    content: |
+      Package: metasploit*
+      Pin: origin downloads.metasploit.com
+      Pin-Priority: 1000
+    dest: /etc/apt/preferences.d/pin-metasploit.pref
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Remove the legacy Metasploit source definition
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/metasploit-framework.list
+    state: absent
+
+- name: Install the latest Metasploit Framework package  # noqa package-latest
+  ansible.builtin.apt:
+    name: metasploit-framework
+    state: latest
+    update_cache: true

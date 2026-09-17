@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -204,6 +205,8 @@ def verify_tooling() -> None:
         "ligolo-agent",
         "ligolo-proxy",
         "meld",
+        "msfconsole",
+        "msfvenom",
         "netexec",
         "nikto",
         "nmap",
@@ -220,12 +223,15 @@ def verify_tooling() -> None:
         "rust-analyzer",
         "sqlite3",
         "smbclient",
+        "sliver-client",
+        "sliver-server",
         "sqlmap",
         "sshuttle",
         "strace",
         "tcpdump",
         "testssl.sh",
         "tshark",
+        "tuoni",
         "uv",
         "vol",
         "volatility2",
@@ -240,6 +246,8 @@ def verify_tooling() -> None:
 
     file_exists("/usr/local/bin/binaryninja", executable=True)
     file_exists("/opt/peda/peda.py")
+    file_exists("/opt/sliver/sliver-client", executable=True)
+    file_exists("/opt/sliver/sliver-server", executable=True)
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
     file_exists("/opt/jwt_tool/jwt_tool.py")
@@ -251,6 +259,40 @@ def verify_tooling() -> None:
     file_exists("/opt/ysoserial/ysoserial-all.jar")
     file_exists("/usr/share/seclists/README.md")
     record(not Path("/srv/deburner/mirror").exists(), "offline mirror was not synchronized")
+
+
+def verify_c2_staging() -> None:
+    version_path = Path("/srv/tuoni/version.yml")
+    file_exists(str(version_path))
+    try:
+        version_text = version_path.read_text()
+    except OSError as error:
+        record(False, "Tuoni version declaration is readable", str(error))
+        return
+
+    match = re.fullmatch(r"version:\s*([0-9]+(?:\.[0-9]+)+)\s*", version_text)
+    record(match is not None, "Tuoni version declaration is valid", version_text.strip())
+    if match is None:
+        return
+
+    version = match.group(1)
+    for image in [
+        f"ghcr.io/shell-dot/tuoni/server:{version}",
+        f"ghcr.io/shell-dot/tuoni/client:{version}",
+        f"ghcr.io/shell-dot/tuoni/docs:{version}",
+        f"ghcr.io/shell-dot/tuoni/utility:{version}",
+        "nginx:alpine",
+    ]:
+        result = run(["docker", "image", "inspect", image])
+        record(result.returncode == 0, f"Tuoni image is staged: {image}", result.stderr.strip())
+
+    running = run(["docker", "ps", "--format", "{{.Names}}"])
+    running_names = running.stdout.splitlines()
+    record(
+        running.returncode == 0 and not any(name.startswith("tuoni-") for name in running_names),
+        "Tuoni containers are not running",
+        (running.stderr or " ".join(running_names)).strip(),
+    )
 
 
 def verify_test_profile() -> None:
@@ -302,6 +344,7 @@ def main() -> int:
     verify_docker()
     verify_customization()
     verify_tooling()
+    verify_c2_staging()
     verify_test_profile()
     print(f"\nVerification summary: {len(PASSES)} passed, {len(FAILURES)} failed")
     if FAILURES:

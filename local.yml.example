@@ -31,6 +31,12 @@ docker_group_users: []
 # tooling_reversing_packages: []
 # tooling_web_packages: []
 # tooling_wordlists_packages: []
+# tooling_c2_packages: []
+
+# Tuoni source is always installed. Set this to false to defer downloading its
+# container images until the first explicit use.
+tooling_c2_tuoni_stage_images: true
+tooling_c2_tuoni_pull_timeout: 3600
 
 # Burp Suite Community is started with this Java heap limit.
 tooling_web_burp_max_heap: 4g

@@ -1,0 +1,83 @@
+---
+- name: Read the latest stable Sliver release
+  ansible.builtin.uri:
+    url: "{{ tooling_c2_sliver_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_c2_sliver_release
+  changed_when: false
+
+- name: Select the Sliver amd64 Linux executables
+  ansible.builtin.set_fact:
+    tooling_c2_sliver_client_assets: >-
+      {{ tooling_c2_sliver_release.json.assets
+         | selectattr('name', 'equalto', 'sliver-client_linux-amd64')
+         | list }}
+    tooling_c2_sliver_server_assets: >-
+      {{ tooling_c2_sliver_release.json.assets
+         | selectattr('name', 'equalto', 'sliver-server_linux-amd64')
+         | list }}
+
+- name: Validate the latest stable Sliver release
+  ansible.builtin.assert:
+    that:
+      - not tooling_c2_sliver_release.json.draft
+      - not tooling_c2_sliver_release.json.prerelease
+      - tooling_c2_sliver_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_c2_sliver_client_assets | length == 1
+      - tooling_c2_sliver_server_assets | length == 1
+      - tooling_c2_sliver_client_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_c2_sliver_server_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_c2_sliver_client_assets[0].browser_download_url is match('^https://github\.com/BishopFox/sliver/releases/download/')
+      - tooling_c2_sliver_server_assets[0].browser_download_url is match('^https://github\.com/BishopFox/sliver/releases/download/')
+    fail_msg: The latest Sliver release does not contain the expected checksum-described executables.
+
+- name: Define the current Sliver installation
+  ansible.builtin.set_fact:
+    tooling_c2_sliver_client_asset: "{{ tooling_c2_sliver_client_assets[0] }}"
+    tooling_c2_sliver_server_asset: "{{ tooling_c2_sliver_server_assets[0] }}"
+    tooling_c2_sliver_install_dir: >-
+      /opt/sliver-{{ tooling_c2_sliver_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Create the current Sliver installation directory
+  ansible.builtin.file:
+    path: "{{ tooling_c2_sliver_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the current Sliver executables
+  ansible.builtin.get_url:
+    url: "{{ item.asset.browser_download_url }}"
+    dest: "{{ tooling_c2_sliver_install_dir }}/{{ item.command }}"
+    checksum: "{{ item.asset.digest }}"
+    owner: root
+    group: root
+    mode: '0755'
+    timeout: 120
+  loop:
+    - asset: "{{ tooling_c2_sliver_client_asset }}"
+      command: sliver-client
+    - asset: "{{ tooling_c2_sliver_server_asset }}"
+      command: sliver-server
+  loop_control:
+    label: "{{ item.command }}"
+
+- name: Create the stable Sliver path
+  ansible.builtin.file:
+    src: "{{ tooling_c2_sliver_install_dir }}"
+    dest: /opt/sliver
+    state: link
+    force: true
+
+- name: Expose the Sliver commands
+  ansible.builtin.file:
+    src: "/opt/sliver/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - sliver-client
+    - sliver-server

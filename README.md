@@ -48,10 +48,10 @@ Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, pivoting, analysis,
 Windows/Active Directory and desktop tooling, exploitation tooling,
-reverse-engineering tooling, web tooling, SecLists, Docker, optional BloodHound
-staging, user and desktop customizations, and the optional offline-mirror sync.
-Optional features remain
-disabled unless selected in `local.yml`. All tasks target
+reverse-engineering tooling, web tooling, SecLists, Docker, C2 tooling, optional
+BloodHound staging, user and desktop customizations, and the optional
+offline-mirror sync. Optional features remain disabled unless selected in
+`local.yml`. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
 you can rerun them during initial provisioning or to apply a deliberate
 configuration change, such as opening another port. Rerunning the playbooks is
@@ -62,8 +62,8 @@ is ignored by Git. Each playbook loads `local.yml` automatically, falling back t
 
 The preflight first requires more than 400 GB of free space on the filesystem
 containing `/srv`, the planned offline-mirror location. It then requests signed
-Debian and Docker repository metadata, GitHub's release API, PyPI package access,
-Rust's distribution service and PortSwigger's release page over
+Debian, Docker and Metasploit repository metadata, GitHub's release API, PyPI
+package access, Rust's distribution service and PortSwigger's release page over
 certificate-validated HTTPS. It also
 checks service-specific response text, which prevents a captive portal's generic
 success page from passing. A failure stops `deburner.yml` before any system
@@ -256,6 +256,7 @@ ansible-playbook tooling-reversing.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
 ansible-playbook tooling-wordlists.yml --ask-become-pass
 ansible-playbook docker.yml --ask-become-pass
+ansible-playbook tooling-c2.yml --ask-become-pass
 ansible-playbook tooling-bloodhound.yml --ask-become-pass \
   --extra-vars tooling_bloodhound_enabled=true
 ansible-playbook customization.yml --ask-become-pass
@@ -391,6 +392,33 @@ The playbook owns `/etc/docker/daemon.json`. Its defaults use Docker's rotating
 `local` log driver with a 20 MB limit and five retained files per container, and
 enable live restore. Override the related `docker_*` variables only after checking
 that the installed daemon supports the chosen values.
+
+### Command-and-control tooling
+
+`tooling-c2.yml` installs the current stable checksum-described
+[Sliver](https://github.com/BishopFox/sliver/releases) client and server
+executables, including Debian's MinGW cross-compilation support. Neither Sliver
+executable is started during provisioning.
+
+[Metasploit Framework](https://docs.metasploit.com/docs/using-metasploit/getting-started/nightly-installers.html)
+is installed from Rapid7's signed upstream APT repository. The role verifies the
+repository key fingerprint and installs the current upstream package, but does
+not run `msfdb init` or start `msfconsole`. Initialize its local database
+explicitly with `sudo msfdb init` if an exercise needs it.
+
+The role checks out the current [Tuoni](https://docs.tuoni.io/HowToUse/SettingUpTheC2.html)
+source under `/srv/tuoni` and, by default, pulls its server, client, documentation,
+utility and nginx container images so they remain available after disconnecting.
+It does not create Tuoni credentials or certificates, start its containers,
+expose ports, or change the firewall. Run `sudo tuoni start` when needed; Tuoni
+will then prompt for its local credentials and initialize its configuration. Use
+`sudo tuoni print-credentials` to inspect those credentials later and
+`sudo tuoni stop` to stop its containers.
+
+Set `tooling_c2_tuoni_stage_images: false` in `local.yml` to install Tuoni's
+source without downloading its images during provisioning. The dependency
+package list can be replaced with `tooling_c2_packages`. Run `docker.yml` first
+when invoking this category playbook directly.
 
 ### Core tooling
 
@@ -749,15 +777,15 @@ expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
 Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
-Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, BloodHound container
-images, ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite
-or SecLists.
+Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, Sliver, Metasploit,
+Tuoni source or container images, BloodHound container images, ffuf, Gobuster,
+sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or SecLists.
 
 ## Modifications made
 
 | Area | Modification | Purpose / impact |
 | --- | --- | --- |
-| Preflight | Require more than 400 GB free for `/srv`; verify Debian, Docker, GitHub, PyPI, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when storage is insufficient or required Internet services are unavailable or intercepted by a captive portal |
+| Preflight | Require more than 400 GB free for `/srv`; verify Debian, Docker, Metasploit, GitHub, PyPI, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when storage is insufficient or required Internet services are unavailable or intercepted by a captive portal |
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |
@@ -768,6 +796,7 @@ or SecLists.
 | Core tooling | Install command-line, archive, Python and native build packages from Debian; install the current upstream stable Rust toolchain with rustup | Provide a general base for CTF tooling without modifying personal shell or editor settings |
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
 | Pivoting tooling | Install Debian's sshuttle and current checksum-described Chisel and Ligolo-ng releases; leave listeners, routes and interfaces unconfigured | Provide on-demand tunnelling and pivoting clients and servers without changing network state during provisioning |
+| C2 tooling | Install current checksum-described Sliver client/server binaries and Rapid7's signed Metasploit package; stage current Tuoni source and container images without initializing or starting the frameworks | Keep Sliver, Metasploit and Tuoni available for authorized exercises while leaving listeners, application containers and local C2 configuration under operator control |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
 | Windows / AD tooling | Install SMB/LDAP clients, Hashcat, John, Hydra, current stable Impacket, Certipy and NetExec, plus the current Responder source; expose their commands system-wide without enabling Responder | Support Windows and Active Directory discovery, authentication, credential recovery, relay and remote administration exercises without modifying Debian's Python environment or starting listeners |
 | BloodHound CE | Optionally install the checksum-described current BloodHound CLI, stage its complete Docker stack, preserve the initial local admin password root-only, and leave the containers stopped | Make graph-based Active Directory analysis available offline without exposing or running its web interface by default |
@@ -778,7 +807,7 @@ or SecLists.
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
-| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and configuration-gated BloodHound and mirror stages with one command while retaining individual category entry points |
+| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2 and configuration-gated BloodHound and mirror stages with one command while retaining individual category entry points |
 | Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner locally without changing it or requiring Internet access |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
@@ -834,6 +863,7 @@ sudo docker compose version
 sudo docker buildx version
 command -v git rg python3 pipx go rustup rustc rust-analyzer cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
 command -v chisel sshuttle ligolo-agent ligolo-proxy
+command -v sliver-client sliver-server msfconsole msfvenom tuoni
 rustup --version
 rustc --version
 cargo --version
