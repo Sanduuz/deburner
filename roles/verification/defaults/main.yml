@@ -3,6 +3,7 @@ verification_required_commands:
   - 7z
   - aa-status
   - ansible-playbook
+  - audacity
   - batcat
   - binwalk
   - binaryninja
@@ -16,7 +17,9 @@ verification_required_commands:
   - docker
   - exiftool
   - fdfind
+  - ffmpeg
   - ffuf
+  - foremost
   - fzf
   - gdb
   - gdb-multiarch
@@ -39,6 +42,7 @@ verification_required_commands:
   - ldapsearch
   - ligolo-agent
   - ligolo-proxy
+  - magick
   - meld
   - msfconsole
   - msfvenom
@@ -48,6 +52,7 @@ verification_required_commands:
   - nxc
   - nxcdb
   - openvpn
+  - outguess
   - pwn
   - pycdas
   - pycdc
@@ -62,8 +67,13 @@ verification_required_commands:
   - smbclient
   - sliver-client
   - sliver-server
+  - sonic-visualiser
+  - sox
   - sqlmap
   - sshuttle
+  - steghide
+  - stegseek
+  - stegsolve
   - strace
   - tcpdump
   - testssl.sh
@@ -80,6 +90,7 @@ verification_required_commands:
   - yara
   - ysoserial
   - zed
+  - zsteg
 
 verification_required_system_files:
   - /etc/apt/apt.conf.d/99deburner-updates
@@ -100,8 +111,10 @@ verification_required_system_files:
   - /opt/sliver/sliver-client
   - /opt/sliver/sliver-server
   - /opt/sqlmap/sqlmap.py
+  - /opt/stegsolve/stegsolve.jar
   - /opt/testssl.sh/testssl.sh
   - /opt/ysoserial/ysoserial-all.jar
+  - /opt/zsteg/bin/zsteg
   - /usr/share/seclists/README.md
   - /srv/tuoni/tuoni
 

@@ -171,6 +171,7 @@ def verify_customization() -> None:
 def verify_tooling() -> None:
     commands = [
         "7z",
+        "audacity",
         "binwalk",
         "batcat",
         "burpsuite",
@@ -182,7 +183,9 @@ def verify_tooling() -> None:
         "curl",
         "exiftool",
         "fdfind",
+        "ffmpeg",
         "ffuf",
+        "foremost",
         "fzf",
         "gdb",
         "gdb-multiarch",
@@ -204,6 +207,7 @@ def verify_tooling() -> None:
         "ldapsearch",
         "ligolo-agent",
         "ligolo-proxy",
+        "magick",
         "meld",
         "msfconsole",
         "msfvenom",
@@ -213,6 +217,7 @@ def verify_tooling() -> None:
         "nxc",
         "nxcdb",
         "openvpn",
+        "outguess",
         "pwn",
         "pycdas",
         "pycdc",
@@ -225,8 +230,13 @@ def verify_tooling() -> None:
         "smbclient",
         "sliver-client",
         "sliver-server",
+        "sonic-visualiser",
+        "sox",
         "sqlmap",
         "sshuttle",
+        "steghide",
+        "stegseek",
+        "stegsolve",
         "strace",
         "tcpdump",
         "testssl.sh",
@@ -240,6 +250,7 @@ def verify_tooling() -> None:
         "yara",
         "ysoserial",
         "zed",
+        "zsteg",
     ]
     for command in commands:
         command_exists(command)
@@ -248,6 +259,8 @@ def verify_tooling() -> None:
     file_exists("/opt/peda/peda.py")
     file_exists("/opt/sliver/sliver-client", executable=True)
     file_exists("/opt/sliver/sliver-server", executable=True)
+    file_exists("/opt/stegsolve/stegsolve.jar")
+    file_exists("/opt/zsteg/bin/zsteg", executable=True)
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
     file_exists("/opt/jwt_tool/jwt_tool.py")

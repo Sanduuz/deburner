@@ -19,6 +19,9 @@
 - name: Install system and file analysis tooling
   ansible.builtin.import_playbook: tooling-analysis.yml
 
+- name: Install steganography and media-analysis tooling
+  ansible.builtin.import_playbook: tooling-media.yml
+
 - name: Install Windows and Active Directory tooling
   ansible.builtin.import_playbook: tooling-windows.yml
 

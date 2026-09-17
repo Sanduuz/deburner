@@ -1,0 +1,88 @@
+---
+- name: Read the official StegSolve v1.4 release
+  ansible.builtin.uri:
+    url: "{{ tooling_media_stegsolve_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_media_stegsolve_release
+  changed_when: false
+
+- name: Select the official StegSolve JAR
+  ansible.builtin.set_fact:
+    tooling_media_stegsolve_assets: >-
+      {{ tooling_media_stegsolve_release.json.assets
+         | selectattr('name', 'equalto', 'StegSolve-1.4.jar')
+         | list }}
+
+- name: Validate the official StegSolve v1.4 release
+  ansible.builtin.assert:
+    that:
+      - not tooling_media_stegsolve_release.json.draft
+      - not tooling_media_stegsolve_release.json.prerelease
+      - tooling_media_stegsolve_release.json.tag_name == 'v1.4'
+      - tooling_media_stegsolve_assets | length == 1
+      - tooling_media_stegsolve_assets[0].browser_download_url == 'https://github.com/Giotino/stegsolve/releases/download/v1.4/StegSolve-1.4.jar'
+    fail_msg: The official StegSolve v1.4 release does not contain the expected JAR.
+
+- name: Create the StegSolve installation directory
+  ansible.builtin.file:
+    path: /opt/stegsolve-1.4
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the official StegSolve v1.4 JAR
+  ansible.builtin.get_url:
+    url: "{{ tooling_media_stegsolve_assets[0].browser_download_url }}"
+    dest: /opt/stegsolve-1.4/stegsolve.jar
+    checksum: "{{ tooling_media_stegsolve_checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Validate the StegSolve JAR
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/jar
+      - --list
+      - --file
+      - /opt/stegsolve-1.4/stegsolve.jar
+  register: tooling_media_stegsolve_jar
+  changed_when: false
+  failed_when: >-
+    tooling_media_stegsolve_jar.rc != 0 or
+    'stegsolve/StegSolve.class' not in tooling_media_stegsolve_jar.stdout_lines
+
+- name: Create the stable StegSolve path
+  ansible.builtin.file:
+    src: /opt/stegsolve-1.4
+    dest: /opt/stegsolve
+    state: link
+    force: true
+
+- name: Install the StegSolve command
+  ansible.builtin.template:
+    src: stegsolve.sh.j2
+    dest: /usr/local/bin/stegsolve
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the system desktop launcher directory
+  ansible.builtin.file:
+    path: /usr/local/share/applications
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the StegSolve desktop launcher
+  ansible.builtin.copy:
+    src: stegsolve.desktop
+    dest: /usr/local/share/applications/stegsolve.desktop
+    owner: root
+    group: root
+    mode: '0644'

@@ -1,0 +1,20 @@
+---
+tooling_media_packages:
+  - audacity
+  - ca-certificates
+  - ffmpeg
+  - foremost
+  - imagemagick
+  - libsox-fmt-all
+  - openjdk-21-jre
+  - outguess
+  - ruby
+  - ruby-rubygems
+  - sonic-visualiser
+  - sox
+  - steghide
+  - stegseek
+
+tooling_media_zsteg_api: https://rubygems.org/api/v1/gems/zsteg.json
+tooling_media_stegsolve_release_api: https://api.github.com/repos/Giotino/stegsolve/releases/tags/v1.4
+tooling_media_stegsolve_checksum: sha256:2cc24c81d6731b9e5672d2e7ec129378705dfc9a87024c7a24ae740d5efa404f

@@ -24,6 +24,9 @@ preflight_required_endpoints:
   - name: Python package registry
     url: https://pypi.org/pypi/volatility3/json
     marker: '"volatility3"'
+  - name: Ruby package registry
+    url: https://rubygems.org/api/v1/gems/zsteg.json
+    marker: '"name":"zsteg"'
   - name: Rust distribution service
     url: https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init.sha256
     marker: 'rustup-init'

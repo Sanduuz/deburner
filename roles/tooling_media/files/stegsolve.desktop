@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=StegSolve
+Comment=Inspect image colour planes and hidden data
+Exec=stegsolve
+Icon=image-x-generic
+Terminal=false
+Categories=Graphics;Utility;

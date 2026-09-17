@@ -1,0 +1,35 @@
+---
+- name: Validate media tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_media_packages | type_debug == 'list'
+      - tooling_media_packages | length > 0
+      - tooling_media_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_media_packages | length
+      - tooling_media_zsteg_api == 'https://rubygems.org/api/v1/gems/zsteg.json'
+      - tooling_media_stegsolve_release_api == 'https://api.github.com/repos/Giotino/stegsolve/releases/tags/v1.4'
+      - tooling_media_stegsolve_checksum is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: Review the media tooling variables; one or more values are invalid.
+
+- name: Install steganography and media-analysis packages
+  ansible.builtin.apt:
+    name: "{{ tooling_media_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the media tooling artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install zsteg
+  ansible.builtin.include_tasks: zsteg.yml
+
+- name: Install StegSolve
+  ansible.builtin.include_tasks: stegsolve.yml

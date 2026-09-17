@@ -8,7 +8,6 @@ tooling_analysis_packages:
   - binwalk
   - debsecan
   - dislocker
-  - foremost
   - hexedit
   - htop
   - inotify-tools

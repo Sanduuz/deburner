@@ -1,0 +1,84 @@
+---
+- name: Read the current zsteg release metadata
+  ansible.builtin.uri:
+    url: "{{ tooling_media_zsteg_api }}"
+    return_content: true
+  register: tooling_media_zsteg_release
+  changed_when: false
+
+- name: Validate the current zsteg release
+  ansible.builtin.assert:
+    that:
+      - tooling_media_zsteg_release.json.name == 'zsteg'
+      - tooling_media_zsteg_release.json.version is match('^[0-9]+(?:\.[0-9]+)+$')
+      - tooling_media_zsteg_release.json.sha is match('^[0-9a-f]{64}$')
+      - tooling_media_zsteg_release.json.gem_uri is match('^https://rubygems\.org/gems/zsteg-[0-9.]+\.gem$')
+      - tooling_media_zsteg_release.json.gem_uri is search('zsteg-' + tooling_media_zsteg_release.json.version + '\.gem$')
+    fail_msg: RubyGems did not return a recognizable checksum-described zsteg release.
+
+- name: Define the current zsteg installation
+  ansible.builtin.set_fact:
+    tooling_media_zsteg_version: "{{ tooling_media_zsteg_release.json.version }}"
+    tooling_media_zsteg_gem: "/var/cache/deburner/zsteg-{{ tooling_media_zsteg_release.json.version }}.gem"
+    tooling_media_zsteg_install_dir: "/opt/zsteg-{{ tooling_media_zsteg_release.json.version }}"
+
+- name: Check whether the current zsteg release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_media_zsteg_install_dir }}/bin/zsteg"
+  register: tooling_media_zsteg_executable
+
+- name: Install the current zsteg release
+  when: not tooling_media_zsteg_executable.stat.exists
+  block:
+    - name: Download the current zsteg gem
+      ansible.builtin.get_url:
+        url: "{{ tooling_media_zsteg_release.json.gem_uri }}"
+        dest: "{{ tooling_media_zsteg_gem }}"
+        checksum: "sha256:{{ tooling_media_zsteg_release.json.sha }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Install zsteg and its Ruby dependencies under opt
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/gem
+          - install
+          - --install-dir
+          - "{{ tooling_media_zsteg_install_dir }}"
+          - --bindir
+          - "{{ tooling_media_zsteg_install_dir }}/bin"
+          - --no-document
+          - "{{ tooling_media_zsteg_gem }}"
+      environment:
+        GEM_HOME: "{{ tooling_media_zsteg_install_dir }}"
+        GEM_PATH: "{{ tooling_media_zsteg_install_dir }}"
+      changed_when: true
+
+    - name: Remove the downloaded zsteg gem
+      ansible.builtin.file:
+        path: "{{ tooling_media_zsteg_gem }}"
+        state: absent
+
+- name: Ensure the zsteg executable is root-managed
+  ansible.builtin.file:
+    path: "{{ tooling_media_zsteg_install_dir }}/bin/zsteg"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the stable zsteg path
+  ansible.builtin.file:
+    src: "{{ tooling_media_zsteg_install_dir }}"
+    dest: /opt/zsteg
+    state: link
+    force: true
+
+- name: Install the zsteg command wrapper
+  ansible.builtin.template:
+    src: zsteg.sh.j2
+    dest: /usr/local/bin/zsteg
+    owner: root
+    group: root
+    mode: '0755'
