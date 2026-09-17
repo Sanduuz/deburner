@@ -1,0 +1,222 @@
+---
+- name: Validate BloodHound tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_bloodhound_packages | type_debug == 'list'
+      - tooling_bloodhound_packages | length > 0
+      - tooling_bloodhound_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_bloodhound_packages | length
+      - tooling_bloodhound_release_api == 'https://api.github.com/repos/SpecterOps/bloodhound-cli/releases/latest'
+      - tooling_bloodhound_asset_name == 'bloodhound-cli-linux-amd64.tar.gz'
+      - tooling_bloodhound_config_dir == '/root/.config/bloodhound'
+      - tooling_bloodhound_state_dir == '/var/lib/deburner'
+      - tooling_bloodhound_install_timeout | int >= 600
+    fail_msg: Review the BloodHound tooling variables; one or more values are invalid.
+
+- name: Install BloodHound CLI runtime dependencies
+  ansible.builtin.apt:
+    name: "{{ tooling_bloodhound_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check for the upstream Docker installation
+  ansible.builtin.stat:
+    path: /usr/bin/docker
+  register: tooling_bloodhound_docker
+
+- name: Require Docker before installing BloodHound
+  ansible.builtin.assert:
+    that:
+      - tooling_bloodhound_docker.stat.exists
+      - tooling_bloodhound_docker.stat.executable
+    fail_msg: Run docker.yml before tooling-bloodhound.yml so Docker and Compose are available.
+
+- name: Check Docker and Compose availability
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - compose
+      - version
+  changed_when: false
+
+- name: Check Docker daemon availability
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - info
+  changed_when: false
+
+- name: Create the artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable BloodHound CLI release
+  ansible.builtin.uri:
+    url: "{{ tooling_bloodhound_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_bloodhound_release
+  changed_when: false
+
+- name: Select the BloodHound CLI amd64 Linux archive
+  ansible.builtin.set_fact:
+    tooling_bloodhound_assets: >-
+      {{ tooling_bloodhound_release.json.assets
+         | selectattr('name', 'equalto', tooling_bloodhound_asset_name)
+         | list }}
+
+- name: Validate the latest stable BloodHound CLI release
+  ansible.builtin.assert:
+    that:
+      - not tooling_bloodhound_release.json.draft
+      - not tooling_bloodhound_release.json.prerelease
+      - tooling_bloodhound_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_bloodhound_assets | length == 1
+      - tooling_bloodhound_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_bloodhound_assets[0].browser_download_url is match('^https://github\.com/SpecterOps/bloodhound-cli/releases/download/')
+    fail_msg: The latest BloodHound CLI release does not contain the expected checksum-described archive.
+
+- name: Define the current BloodHound CLI artifact
+  ansible.builtin.set_fact:
+    tooling_bloodhound_asset: "{{ tooling_bloodhound_assets[0] }}"
+    tooling_bloodhound_version: >-
+      {{ tooling_bloodhound_release.json.tag_name | regex_replace('^v', '') }}
+    tooling_bloodhound_install_dir: >-
+      /opt/bloodhound-cli-{{ tooling_bloodhound_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Check whether the current BloodHound CLI release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_bloodhound_install_dir }}/bloodhound-cli"
+  register: tooling_bloodhound_cli
+
+- name: Install the current BloodHound CLI release
+  when: not tooling_bloodhound_cli.stat.exists
+  block:
+    - name: Create the BloodHound CLI version directory
+      ansible.builtin.file:
+        path: "{{ tooling_bloodhound_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download the BloodHound CLI archive
+      ansible.builtin.get_url:
+        url: "{{ tooling_bloodhound_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_bloodhound_asset.name }}"
+        checksum: "{{ tooling_bloodhound_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract the BloodHound CLI archive
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_bloodhound_asset.name }}"
+        dest: "{{ tooling_bloodhound_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Remove the downloaded BloodHound CLI archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_bloodhound_asset.name }}"
+        state: absent
+
+- name: Validate the BloodHound CLI executable
+  ansible.builtin.stat:
+    path: "{{ tooling_bloodhound_install_dir }}/bloodhound-cli"
+  register: tooling_bloodhound_cli_executable
+
+- name: Require the BloodHound CLI executable
+  ansible.builtin.assert:
+    that:
+      - tooling_bloodhound_cli_executable.stat.exists
+      - tooling_bloodhound_cli_executable.stat.isreg
+      - tooling_bloodhound_cli_executable.stat.executable
+    fail_msg: The BloodHound CLI archive is missing its executable.
+
+- name: Expose the current BloodHound CLI release
+  ansible.builtin.file:
+    src: "{{ tooling_bloodhound_install_dir }}/bloodhound-cli"
+    dest: /usr/local/bin/bloodhound-cli
+    state: link
+    force: true
+
+- name: Create the BloodHound installation state directory
+  ansible.builtin.file:
+    path: "{{ tooling_bloodhound_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check whether BloodHound CE has been staged
+  ansible.builtin.stat:
+    path: "{{ tooling_bloodhound_state_dir }}/bloodhound-ce-installed"
+  register: tooling_bloodhound_marker
+
+- name: Stage BloodHound CE containers and data
+  when: not tooling_bloodhound_marker.stat.exists
+  block:
+    - name: Install BloodHound CE with the official CLI
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/bloodhound-cli
+          - install
+      environment:
+        HOME: /root
+      register: tooling_bloodhound_install
+      changed_when: true
+      no_log: true
+      async: "{{ tooling_bloodhound_install_timeout }}"
+      poll: 15
+
+    - name: Preserve the initial BloodHound admin password output
+      ansible.builtin.copy:
+        content: |-
+          {{ tooling_bloodhound_install.stdout }}
+          {% if tooling_bloodhound_install.stderr | length > 0 %}
+          --- stderr ---
+          {{ tooling_bloodhound_install.stderr }}
+          {% endif %}
+        dest: "{{ tooling_bloodhound_config_dir }}/deburner-initial-install.txt"
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+
+    - name: Stop BloodHound CE after staging
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/bloodhound-cli
+          - down
+      environment:
+        HOME: /root
+      changed_when: true
+
+    - name: Restrict the BloodHound configuration and credentials
+      ansible.builtin.file:
+        path: "{{ tooling_bloodhound_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: u=rwX,go=
+        recurse: true
+
+    - name: Mark BloodHound CE as staged
+      ansible.builtin.copy:
+        content: "{{ tooling_bloodhound_version }}\n"
+        dest: "{{ tooling_bloodhound_state_dir }}/bloodhound-ce-installed"
+        owner: root
+        group: root
+        mode: '0644'

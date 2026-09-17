@@ -24,6 +24,7 @@ docker_group_users: []
 # tooling_network_packages: []
 # tooling_analysis_packages: []
 # tooling_windows_packages: []
+# tooling_bloodhound_packages: []
 # tooling_desktop_packages: []
 # tooling_exploitation_packages: []
 # tooling_reversing_packages: []
@@ -32,6 +33,10 @@ docker_group_users: []
 
 # Burp Suite Community is started with this Java heap limit.
 tooling_web_burp_max_heap: 4g
+
+# Optional BloodHound CE staging can download several large container images.
+tooling_bloodhound_enabled: false
+tooling_bloodhound_install_timeout: 3600
 
 # User and desktop customization. An empty value selects the account with UID
 # 1000. Set the account name explicitly if the desktop user has another UID.

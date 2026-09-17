@@ -48,10 +48,9 @@ Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, analysis, Windows/Active
 Directory and desktop tooling, exploitation tooling, reverse-engineering tooling,
-web tooling, SecLists, Docker, user and desktop customizations, and the optional
-offline-mirror sync. Future
-optional playbooks that expose services, such as screen sharing, will not be
-included. All tasks target
+web tooling, SecLists, Docker, optional BloodHound staging, user and desktop
+customizations, and the optional offline-mirror sync. Optional features remain
+disabled unless selected in `local.yml`. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
 you can rerun them during initial provisioning or to apply a deliberate
 configuration change, such as opening another port. Rerunning the playbooks is
@@ -238,6 +237,8 @@ ansible-playbook tooling-reversing.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
 ansible-playbook tooling-wordlists.yml --ask-become-pass
 ansible-playbook docker.yml --ask-become-pass
+ansible-playbook tooling-bloodhound.yml --ask-become-pass \
+  --extra-vars tooling_bloodhound_enabled=true
 ansible-playbook customization.yml --ask-become-pass
 ansible-playbook mirror-sync.yml --ask-become-pass
 ansible-playbook mirror-enable.yml --ask-become-pass
@@ -465,6 +466,45 @@ rogue-server modes can disrupt a network. A fresh provisioning run tracks the
 current upstream commit because Responder does not publish regular stable release
 artifacts.
 
+### Optional BloodHound Community Edition
+
+`tooling-bloodhound.yml` installs the latest stable official
+[BloodHound CLI](https://github.com/SpecterOps/bloodhound-cli), verifies the
+release-provided SHA-256 digest, and uses it to download and initialize the full
+BloodHound Community Edition container stack. The umbrella playbook runs this
+stage after Docker; when running it separately, apply `docker.yml` first.
+
+BloodHound staging is disabled by default. To include it in the normal one-command
+provisioning run, set this in `local.yml` before running `deburner.yml`:
+
+```yaml
+tooling_bloodhound_enabled: true
+```
+
+The playbook saves the initial CLI output, including the randomly generated local
+admin password, in `/root/.config/bloodhound/deburner-initial-install.txt` with
+root-only permissions. It then stops and removes the containers while preserving
+their images, configuration and named data volumes. This keeps BloodHound off by
+default while making it available after the burner loses Internet access.
+
+Start and manage the stack with:
+
+```sh
+sudo bloodhound-cli up
+sudo cat /root/.config/bloodhound/deburner-initial-install.txt
+# Open http://127.0.0.1:8080/ui/login and use the admin account.
+sudo bloodhound-cli logs
+sudo bloodhound-cli resetpwd  # Generate another password if needed.
+sudo bloodhound-cli down
+```
+
+The official configuration binds the web interface to localhost. This playbook
+does not add a firewall exception or make the UI available to the event network.
+BloodHound CE requires at least 8 GB of RAM, four processor cores and roughly
+10 GB of storage. Its initial image download and setup can take several minutes.
+It is imported by `deburner.yml` after Docker but skipped unless enabled. The
+normal VM test leaves it disabled because it is optional and resource intensive.
+
 ### Desktop workstation tooling
 
 `tooling-desktop.yml` installs Chromium, GIMP, Meld, PulseAudio Volume Control,
@@ -654,7 +694,8 @@ expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
 Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
-Impacket, Certipy, NetExec, Responder, Burp Suite or SecLists.
+Impacket, Certipy, NetExec, Responder, BloodHound container images, Burp Suite or
+SecLists.
 
 ## Modifications made
 
@@ -672,6 +713,7 @@ Impacket, Certipy, NetExec, Responder, Burp Suite or SecLists.
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
 | Windows / AD tooling | Install SMB/LDAP clients, Hashcat, John, Hydra, current stable Impacket, Certipy and NetExec, plus the current Responder source; expose their commands system-wide without enabling Responder | Support Windows and Active Directory discovery, authentication, credential recovery, relay and remote administration exercises without modifying Debian's Python environment or starting listeners |
+| BloodHound CE | Optionally install the checksum-described current BloodHound CLI, stage its complete Docker stack, preserve the initial local admin password root-only, and leave the containers stopped | Make graph-based Active Directory analysis available offline without exposing or running its web interface by default |
 | Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; build the current pycdc and pycdas; add stable commands and desktop launchers | Provide current native, Python-bytecode and Java reverse-engineering tools without accounts or stored license keys |
@@ -679,7 +721,7 @@ Impacket, Certipy, NetExec, Responder, Burp Suite or SecLists.
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
-| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and optional mirror-sync playbooks with one command while retaining individual category entry points |
+| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and configuration-gated BloodHound and mirror stages with one command while retaining individual category entry points |
 | Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner locally without changing it or requiring Internet access |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.

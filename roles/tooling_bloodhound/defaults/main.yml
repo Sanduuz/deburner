@@ -1,0 +1,11 @@
+---
+tooling_bloodhound_enabled: false
+
+tooling_bloodhound_packages:
+  - ca-certificates
+
+tooling_bloodhound_release_api: https://api.github.com/repos/SpecterOps/bloodhound-cli/releases/latest
+tooling_bloodhound_asset_name: bloodhound-cli-linux-amd64.tar.gz
+tooling_bloodhound_config_dir: /root/.config/bloodhound
+tooling_bloodhound_state_dir: /var/lib/deburner
+tooling_bloodhound_install_timeout: 3600

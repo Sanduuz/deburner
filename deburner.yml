@@ -37,6 +37,9 @@
 - name: Install Docker tooling
   ansible.builtin.import_playbook: docker.yml
 
+- name: Stage optional BloodHound Community Edition tooling
+  ansible.builtin.import_playbook: tooling-bloodhound.yml
+
 - name: Apply user and desktop customizations
   ansible.builtin.import_playbook: customization.yml
 

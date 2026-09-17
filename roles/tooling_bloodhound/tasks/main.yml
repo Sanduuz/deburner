@@ -1,0 +1,11 @@
+---
+- name: Explain that optional BloodHound CE staging is disabled
+  ansible.builtin.debug:
+    msg: >-
+      BloodHound CE staging is disabled. Set tooling_bloodhound_enabled: true
+      in local.yml to include it in deburner.yml or tooling-bloodhound.yml.
+  when: not tooling_bloodhound_enabled | bool
+
+- name: Install and stage BloodHound CE
+  ansible.builtin.include_tasks: install.yml
+  when: tooling_bloodhound_enabled | bool
