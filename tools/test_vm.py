@@ -785,6 +785,44 @@ def verify(config: Config, *, label: str = "verify") -> None:
     if not domain_exists(config) or not is_running(config):
         raise VmError(f"Domain {config.name!r} is not running.")
     validate_marker(config)
+    print("Running the read-only verification playbook inside the guest...", flush=True)
+    playbook_exit, playbook_stdout, playbook_stderr = guest_exec(
+        config,
+        "/usr/bin/ansible-playbook",
+        [
+            "--inventory",
+            "/opt/deburner/inventory.ini",
+            "/opt/deburner/verify.yml",
+        ],
+        environment={
+            "ANSIBLE_CONFIG": "/opt/deburner/ansible.cfg",
+            "ANSIBLE_FORCE_COLOR": "0",
+            "HOME": "/root",
+            "LANG": "C.UTF-8",
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        },
+        timeout=900,
+    )
+    playbook_log = write_result(
+        config, f"{label}-playbook", playbook_stdout, playbook_stderr, playbook_exit
+    )
+    if playbook_exit != 0:
+        raise VmError(f"Verification playbook failed; see {playbook_log}.")
+    playbook_recap = next(
+        (line.strip() for line in reversed(playbook_stdout.splitlines()) if "failed=" in line),
+        "",
+    )
+    if (
+        not playbook_recap
+        or "failed=0" not in playbook_recap
+        or "unreachable=0" not in playbook_recap
+        or not re.search(r"\bchanged=0\b", playbook_recap)
+    ):
+        raise VmError(
+            f"Verification playbook was unsuccessful or changed the guest; see {playbook_log}."
+        )
+    print(f"Verification playbook completed without changes: {playbook_recap}")
+
     print("Running post-provision checks inside the guest...", flush=True)
     exit_code, stdout, stderr = guest_exec(
         config,

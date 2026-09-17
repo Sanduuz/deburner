@@ -1,0 +1,71 @@
+---
+verification_required_commands:
+  - 7z
+  - aa-status
+  - ansible-playbook
+  - batcat
+  - binwalk
+  - binaryninja
+  - burpsuite
+  - cargo
+  - checksec
+  - chromium
+  - curl
+  - docker
+  - exiftool
+  - fdfind
+  - fzf
+  - gdb
+  - gdb-multiarch
+  - ghidra
+  - gimp
+  - gnome-terminal
+  - go
+  - htop
+  - ltrace
+  - meld
+  - nmap
+  - openvpn
+  - pwn
+  - pycdas
+  - pycdc
+  - python3
+  - r2
+  - rg
+  - rust-analyzer
+  - rustc
+  - rustup
+  - sqlite3
+  - strace
+  - tcpdump
+  - tshark
+  - uv
+  - vol
+  - volatility2
+  - volatility3
+  - volshell
+  - wg
+  - wireshark
+  - wl-copy
+  - yara
+  - zed
+
+verification_required_system_files:
+  - /etc/apt/apt.conf.d/99deburner-updates
+  - /etc/deburner/firewall.nft
+  - /etc/docker/daemon.json
+  - /etc/gdb/gdbinit.d/peda.gdb
+  - /etc/sudoers.d/deburner-desktop-user
+  - /etc/systemd/logind.conf.d/90-deburner-lid-switch.conf
+  - /etc/systemd/system/deburner-firewall.service
+  - /etc/sysctl.d/90-deburner.conf
+  - /opt/burpsuite-community/burpsuite-community.jar
+  - /opt/peda/peda.py
+
+verification_required_user_files:
+  - .bash_aliases
+  - .config/zed/settings.json
+  - .ssh/config
+  - .vim/colors/monokai.vim
+  - .vimrc
+  - bin/fzf-preview.sh

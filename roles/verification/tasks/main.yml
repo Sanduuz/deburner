@@ -1,0 +1,402 @@
+---
+- name: Validate verification variables
+  ansible.builtin.assert:
+    that:
+      - verification_required_commands | type_debug == 'list'
+      - verification_required_commands | length > 0
+      - verification_required_system_files | type_debug == 'list'
+      - verification_required_user_files | type_debug == 'list'
+    fail_msg: Review the verification variables; one or more values are invalid.
+
+- name: Resolve the desktop user
+  ansible.builtin.command:
+    argv:
+      - getent
+      - passwd
+      - >-
+        {{ (customization_user
+            | default(verification_customization_defaults.customization_user))
+           if (customization_user
+               | default(verification_customization_defaults.customization_user)
+               | length > 0)
+           else '1000' }}
+  register: verification_passwd
+  changed_when: false
+  failed_when: false
+
+- name: Validate the desktop user
+  ansible.builtin.assert:
+    that:
+      - verification_passwd.rc == 0
+      - verification_passwd.stdout_lines | length == 1
+      - verification_passwd.stdout.split(':') | length == 7
+      - verification_passwd.stdout.split(':')[0] != 'root'
+      - verification_passwd.stdout.split(':')[2] | int >= 1000
+      - verification_passwd.stdout.split(':')[5] is match('^/home/[^/]+$')
+    fail_msg: >-
+      The customization account could not be resolved. Set customization_user
+      in local.yml to the provisioned desktop account.
+
+- name: Record verification expectations
+  ansible.builtin.set_fact:
+    verification_user: "{{ verification_passwd.stdout.split(':')[0] }}"
+    verification_home: "{{ verification_passwd.stdout.split(':')[5] }}"
+    verification_gnome_settings: >-
+      {{ customization_gnome_settings
+         | default(verification_customization_defaults.customization_gnome_settings) }}
+    verification_disable_ssh: >-
+      {{ hardening_disable_ssh
+         | default(verification_hardening_defaults.hardening_disable_ssh) }}
+    verification_sysctl: >-
+      {{ hardening_sysctl
+         | default(verification_hardening_defaults.hardening_sysctl) }}
+    verification_offline_mirror_enabled: >-
+      {{ offline_mirror_enabled
+         | default(verification_offline_mirror_defaults.offline_mirror_enabled) }}
+    verification_offline_mirror_root: >-
+      {{ offline_mirror_root
+         | default(verification_offline_mirror_defaults.offline_mirror_root) }}
+
+- name: Read required service states
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ item }}"
+  loop:
+    - apparmor.service
+    - deburner-firewall.service
+    - docker.service
+  register: verification_active_services
+  changed_when: false
+  failed_when: false
+
+- name: Require active services
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout | trim == 'active'
+    fail_msg: "{{ item.item }} is not active."
+  loop: "{{ verification_active_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read required service enablement
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - "{{ item }}"
+  loop:
+    - apparmor.service
+    - deburner-firewall.service
+    - docker.service
+  register: verification_enabled_services
+  changed_when: false
+  failed_when: false
+
+- name: Require enabled services
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout | trim == 'enabled'
+    fail_msg: "{{ item.item }} is not enabled."
+  loop: "{{ verification_enabled_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read incoming SSH unit enablement
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - "{{ item }}"
+  loop:
+    - ssh.service
+    - ssh.socket
+  register: verification_ssh_units
+  changed_when: false
+  failed_when: false
+  when: verification_disable_ssh | bool
+
+- name: Require incoming SSH units to be masked or absent
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.stdout | trim in ['masked', 'not-found']
+        or item.stderr is search('(?i)(not found|does not exist|no such file)')
+    fail_msg: "{{ item.item }} is installed without being masked."
+  loop: "{{ verification_ssh_units.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - verification_disable_ssh | bool
+    - not item.skipped | default(false)
+
+- name: Check for an SSH listener
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -H
+      - -ltn
+      - sport
+      - '='
+      - ':22'
+  register: verification_ssh_listener
+  changed_when: false
+
+- name: Require TCP port 22 to have no listener
+  ansible.builtin.assert:
+    that:
+      - verification_ssh_listener.stdout | trim == ''
+    fail_msg: TCP port 22 has a listening socket.
+  when: verification_disable_ssh | bool
+
+- name: Check AppArmor status
+  ansible.builtin.command:
+    argv:
+      - aa-status
+      - --enabled
+  register: verification_apparmor
+  changed_when: false
+
+- name: Check the deburner firewall table
+  ansible.builtin.command:
+    argv:
+      - nft
+      - list
+      - table
+      - inet
+      - deburner
+  register: verification_firewall
+  changed_when: false
+
+- name: Read configured sysctl values
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - "{{ item.key }}"
+  loop: "{{ verification_sysctl | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: verification_sysctl_values
+  changed_when: false
+
+- name: Require configured sysctl values
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim == item.item.value | string
+    fail_msg: >-
+      {{ item.item.key }} is {{ item.stdout | trim }}, expected {{ item.item.value }}.
+  loop: "{{ verification_sysctl_values.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+
+- name: Check whether auditd is installed
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - '-f=${db:Status-Abbrev}'
+      - auditd
+  register: verification_auditd
+  changed_when: false
+  failed_when: false
+
+- name: Require auditd to remain absent
+  ansible.builtin.assert:
+    that:
+      - not verification_auditd.stdout.startswith('ii ')
+    fail_msg: auditd is installed even though the burner baseline does not use it.
+
+- name: Find required commands
+  ansible.builtin.command:
+    argv:
+      - which
+      - "{{ item }}"
+  loop: "{{ verification_required_commands }}"
+  register: verification_commands
+  changed_when: false
+  failed_when: false
+
+- name: Record missing commands
+  ansible.builtin.set_fact:
+    verification_missing_commands: >-
+      {{ verification_commands.results
+         | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item')
+         | list }}
+
+- name: Require all expected commands
+  ansible.builtin.assert:
+    that:
+      - verification_missing_commands | length == 0
+    fail_msg: "Missing commands: {{ verification_missing_commands | join(', ') }}"
+
+- name: Check Docker daemon access
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+  register: verification_docker_info
+  changed_when: false
+
+- name: Check Docker Compose
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - version
+  register: verification_docker_compose
+  changed_when: false
+
+- name: Check Docker Buildx
+  ansible.builtin.command:
+    argv:
+      - docker
+      - buildx
+      - version
+  register: verification_docker_buildx
+  changed_when: false
+
+- name: Inspect required system files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ verification_required_system_files }}"
+  register: verification_system_files
+
+- name: Require expected system files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Required system file is missing: {{ item.item }}"
+  loop: "{{ verification_system_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inspect required user files
+  ansible.builtin.stat:
+    path: "{{ verification_home }}/{{ item }}"
+  loop: "{{ verification_required_user_files }}"
+  register: verification_user_files
+
+- name: Require expected user files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.pw_name == verification_user
+    fail_msg: "Required user file is missing or has the wrong owner: {{ item.item }}"
+  loop: "{{ verification_user_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read desktop user groups
+  ansible.builtin.command:
+    argv:
+      - id
+      - -nG
+      - "{{ verification_user }}"
+  register: verification_user_groups
+  changed_when: false
+
+- name: Require desktop user sudo membership
+  ansible.builtin.assert:
+    that:
+      - "'sudo' in verification_user_groups.stdout.split()"
+    fail_msg: "{{ verification_user }} is not a member of the sudo group."
+
+- name: Check passwordless sudo
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ verification_user }}"
+      - --
+      - sudo
+      - -n
+      - 'true'
+  register: verification_passwordless_sudo
+  changed_when: false
+
+- name: Validate sudoers configuration
+  ansible.builtin.command:
+    argv:
+      - visudo
+      - -c
+  register: verification_sudoers
+  changed_when: false
+
+- name: Validate Bash configuration
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -n
+      - "{{ verification_home }}/{{ item }}"
+  loop:
+    - .bashrc
+    - .bash_aliases
+    - bin/fzf-preview.sh
+  register: verification_bash
+  changed_when: false
+
+- name: Read GNOME settings
+  become: true
+  become_user: "{{ verification_user }}"
+  ansible.builtin.command:
+    argv:
+      - dbus-run-session
+      - --
+      - gsettings
+      - get
+      - "{{ item.schema }}"
+      - "{{ item.key }}"
+  environment:
+    HOME: "{{ verification_home }}"
+  loop: "{{ verification_gnome_settings }}"
+  loop_control:
+    label: "{{ item.schema }} {{ item.key }}"
+  register: verification_gnome_values
+  changed_when: false
+
+- name: Require configured GNOME settings
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim == item.item.value
+    fail_msg: >-
+      {{ item.item.schema }} {{ item.item.key }} is {{ item.stdout | trim }},
+      expected {{ item.item.value }}.
+  loop: "{{ verification_gnome_values.results }}"
+  loop_control:
+    label: "{{ item.item.schema }} {{ item.item.key }}"
+
+- name: Inspect the optional offline mirror metadata
+  ansible.builtin.stat:
+    path: "{{ verification_offline_mirror_root }}/{{ item }}"
+  loop:
+    - debian/dists/trixie/InRelease
+    - debian/dists/trixie-updates/InRelease
+    - debian-security/dists/trixie-security/InRelease
+  register: verification_mirror_metadata
+  when: verification_offline_mirror_enabled | bool
+
+- name: Require offline mirror metadata
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Offline mirror metadata is missing: {{ item.item }}"
+  loop: "{{ verification_mirror_metadata.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - verification_offline_mirror_enabled | bool
+    - not item.skipped | default(false)
+
+- name: Report successful verification
+  ansible.builtin.debug:
+    msg: >-
+      Deburner verification passed for {{ verification_user }}. No configuration
+      changes were made and no Internet access was required.

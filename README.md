@@ -188,7 +188,8 @@ make test-idempotence
 ```
 
 `test-provision` runs `deburner.yml` locally as root inside the guest through
-the guest agent. `test-verify` checks the supported platform, GNOME baseline,
+the guest agent. `test-verify` first runs the read-only `verify.yml` playbook and
+requires `changed=0`, then checks the supported platform, GNOME baseline,
 hardening, firewall, disabled SSH units, Docker configuration and representative
 commands from every tooling category. `test-reboot` requires the guest boot ID
 to change and waits for the agent to return. `test-idempotence` reruns the full
@@ -628,6 +629,7 @@ or Burp Suite.
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker and optional mirror-sync playbooks with one command while retaining individual category entry points |
+| Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner locally without changing it or requiring Internet access |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
 It has no output or forwarding chain, does not flush the global ruleset, and
@@ -653,7 +655,23 @@ file access in shared sticky directories.
 
 ## Verify the provisioned machine
 
-After applying and rebooting:
+After applying and rebooting, optionally run the read-only verification playbook:
+
+```sh
+ansible-playbook verify.yml
+```
+
+`verify.yml` is deliberately separate from `deburner.yml`; provisioning does not
+run it automatically. It checks the supported platform, services, firewall, SSH
+exposure, AppArmor, sysctls, Docker plugins, sudo policy, GNOME preferences,
+managed user files, installed commands, and optional mirror metadata. It does not
+change configuration or require Internet access, so it remains useful after the
+machine has been disconnected. It stops with the failed check and prints a
+success message only after every check passes. No become-password prompt is
+needed because provisioning grants the selected desktop user passwordless sudo;
+failure to become root therefore also identifies a broken sudo configuration.
+
+The following commands provide additional manual inspection:
 
 ```sh
 sudo systemctl status deburner-firewall apparmor
@@ -664,14 +682,14 @@ sudo apt-config dump
 sudo docker info
 sudo docker compose version
 sudo docker buildx version
-command -v git rg python3 pipx go rustup rustc cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
+command -v git rg python3 pipx go rustup rustc rust-analyzer cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
 rustup --version
 rustc --version
 cargo --version
 command -v strace ltrace htop binwalk exiftool sqlite3 yara fls photorec
 command -v uv uvx vol volatility2 volatility3 volshell
 command -v chromium gimp meld pavucontrol d-feet virt-manager zed
-command -v gdb gdb-multiarch pwn checksec r2 radare2 ghidra binaryninja burpsuite
+command -v gdb gdb-multiarch pwn checksec r2 radare2 pycdc pycdas ghidra binaryninja burpsuite
 gdb --batch -ex 'peda show option' -ex quit
 ```
 
