@@ -1,7 +1,30 @@
 ---
 tooling_web_packages:
+  - bind9-dnsutils
+  - bsdextrautils
+  - ca-certificates
+  - git
+  - libjson-pp-perl
+  - libnet-ssleay-perl
+  - libwhisker2-perl
   - openjdk-21-jre
+  - openssl
+  - perl
+  - procps
+  - python3
+  - python3-magic
+  - tar
 
 tooling_web_burp_releases_url: https://portswigger.net/burp/releases
 tooling_web_burp_download_url: https://portswigger.net/burp/releases/download
 tooling_web_burp_max_heap: 4g
+
+tooling_web_ffuf_release_api: https://api.github.com/repos/ffuf/ffuf/releases/latest
+tooling_web_gobuster_release_api: https://api.github.com/repos/OJ/gobuster/releases/latest
+tooling_web_testssl_release_api: https://api.github.com/repos/testssl/testssl.sh/releases/latest
+tooling_web_testssl_repository: https://github.com/testssl/testssl.sh.git
+tooling_web_ysoserial_release_api: https://api.github.com/repos/frohoff/ysoserial/releases/latest
+
+tooling_web_sqlmap_repository: https://github.com/sqlmapproject/sqlmap.git
+tooling_web_nikto_repository: https://github.com/sullo/nikto.git
+tooling_web_jwt_tool_repository: https://github.com/ticarpi/jwt_tool.git

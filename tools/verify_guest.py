@@ -180,11 +180,13 @@ def verify_tooling() -> None:
         "curl",
         "exiftool",
         "fdfind",
+        "ffuf",
         "fzf",
         "gdb",
         "gdb-multiarch",
         "ghidra",
         "gimp",
+        "gobuster",
         "go",
         "hashcat",
         "htop",
@@ -195,10 +197,12 @@ def verify_tooling() -> None:
         "impacket-secretsdump",
         "impacket-wmiexec",
         "john",
+        "jwt_tool",
         "ltrace",
         "ldapsearch",
         "meld",
         "netexec",
+        "nikto",
         "nmap",
         "nxc",
         "nxcdb",
@@ -213,8 +217,10 @@ def verify_tooling() -> None:
         "rust-analyzer",
         "sqlite3",
         "smbclient",
+        "sqlmap",
         "strace",
         "tcpdump",
+        "testssl.sh",
         "tshark",
         "uv",
         "vol",
@@ -222,6 +228,7 @@ def verify_tooling() -> None:
         "wg",
         "wl-copy",
         "yara",
+        "ysoserial",
         "zed",
     ]
     for command in commands:
@@ -231,6 +238,11 @@ def verify_tooling() -> None:
     file_exists("/opt/peda/peda.py")
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
+    file_exists("/opt/jwt_tool/jwt_tool.py")
+    file_exists("/opt/nikto/program/nikto.pl")
+    file_exists("/opt/sqlmap/sqlmap.py")
+    file_exists("/opt/testssl.sh/testssl.sh")
+    file_exists("/opt/ysoserial/ysoserial-all.jar")
     file_exists("/usr/share/seclists/README.md")
     record(not Path("/srv/deburner/mirror").exists(), "offline mirror was not synchronized")
 

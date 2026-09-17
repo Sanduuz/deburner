@@ -1,0 +1,475 @@
+---
+- name: Check for the upstream uv installation
+  ansible.builtin.stat:
+    path: /usr/local/bin/uv
+  register: tooling_web_uv
+
+- name: Require uv for isolated Python web tooling
+  ansible.builtin.assert:
+    that:
+      - tooling_web_uv.stat.exists
+      - tooling_web_uv.stat.executable
+    fail_msg: Run tooling-analysis.yml before tooling-web.yml so upstream uv is available.
+
+- name: Create the web tooling artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable ffuf release
+  ansible.builtin.uri:
+    url: "{{ tooling_web_ffuf_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_web_ffuf_release
+  changed_when: false
+
+- name: Define the expected ffuf asset name
+  ansible.builtin.set_fact:
+    tooling_web_ffuf_version: >-
+      {{ tooling_web_ffuf_release.json.tag_name | regex_replace('^v', '') }}
+    tooling_web_ffuf_asset_name: >-
+      ffuf_{{ tooling_web_ffuf_release.json.tag_name | regex_replace('^v', '') }}_linux_amd64.tar.gz
+
+- name: Select the ffuf amd64 Linux archive
+  ansible.builtin.set_fact:
+    tooling_web_ffuf_assets: >-
+      {{ tooling_web_ffuf_release.json.assets
+         | selectattr('name', 'equalto', tooling_web_ffuf_asset_name)
+         | list }}
+
+- name: Validate the latest stable ffuf release
+  ansible.builtin.assert:
+    that:
+      - not tooling_web_ffuf_release.json.draft
+      - not tooling_web_ffuf_release.json.prerelease
+      - tooling_web_ffuf_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_web_ffuf_assets | length == 1
+      - tooling_web_ffuf_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_web_ffuf_assets[0].browser_download_url is match('^https://github\.com/ffuf/ffuf/releases/download/')
+    fail_msg: The latest ffuf release does not contain the expected checksum-described archive.
+
+- name: Define the current ffuf installation
+  ansible.builtin.set_fact:
+    tooling_web_ffuf_asset: "{{ tooling_web_ffuf_assets[0] }}"
+    tooling_web_ffuf_install_dir: "/opt/ffuf-{{ tooling_web_ffuf_version }}"
+
+- name: Check whether the current ffuf release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_web_ffuf_install_dir }}/ffuf"
+  register: tooling_web_ffuf_executable
+
+- name: Install the current ffuf release
+  when: not tooling_web_ffuf_executable.stat.exists
+  block:
+    - name: Create the ffuf version directory
+      ansible.builtin.file:
+        path: "{{ tooling_web_ffuf_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download the ffuf archive
+      ansible.builtin.get_url:
+        url: "{{ tooling_web_ffuf_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_web_ffuf_asset.name }}"
+        checksum: "{{ tooling_web_ffuf_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract ffuf under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_web_ffuf_asset.name }}"
+        dest: "{{ tooling_web_ffuf_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded ffuf archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_web_ffuf_asset.name }}"
+        state: absent
+
+- name: Ensure the ffuf binary is executable
+  ansible.builtin.file:
+    path: "{{ tooling_web_ffuf_install_dir }}/ffuf"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Expose the current ffuf release
+  ansible.builtin.file:
+    src: "{{ tooling_web_ffuf_install_dir }}/ffuf"
+    dest: /usr/local/bin/ffuf
+    state: link
+    force: true
+
+- name: Read the latest stable Gobuster release
+  ansible.builtin.uri:
+    url: "{{ tooling_web_gobuster_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_web_gobuster_release
+  changed_when: false
+
+- name: Select the Gobuster amd64 Linux archive
+  ansible.builtin.set_fact:
+    tooling_web_gobuster_assets: >-
+      {{ tooling_web_gobuster_release.json.assets
+         | selectattr('name', 'equalto', 'gobuster_Linux_x86_64.tar.gz')
+         | list }}
+
+- name: Validate the latest stable Gobuster release
+  ansible.builtin.assert:
+    that:
+      - not tooling_web_gobuster_release.json.draft
+      - not tooling_web_gobuster_release.json.prerelease
+      - tooling_web_gobuster_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_web_gobuster_assets | length == 1
+      - tooling_web_gobuster_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_web_gobuster_assets[0].browser_download_url is match('^https://github\.com/OJ/gobuster/releases/download/')
+    fail_msg: The latest Gobuster release does not contain the expected checksum-described archive.
+
+- name: Define the current Gobuster installation
+  ansible.builtin.set_fact:
+    tooling_web_gobuster_asset: "{{ tooling_web_gobuster_assets[0] }}"
+    tooling_web_gobuster_install_dir: >-
+      /opt/gobuster-{{ tooling_web_gobuster_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Check whether the current Gobuster release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_web_gobuster_install_dir }}/gobuster"
+  register: tooling_web_gobuster_executable
+
+- name: Install the current Gobuster release
+  when: not tooling_web_gobuster_executable.stat.exists
+  block:
+    - name: Create the Gobuster version directory
+      ansible.builtin.file:
+        path: "{{ tooling_web_gobuster_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download the Gobuster archive
+      ansible.builtin.get_url:
+        url: "{{ tooling_web_gobuster_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_web_gobuster_asset.name }}"
+        checksum: "{{ tooling_web_gobuster_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract Gobuster under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_web_gobuster_asset.name }}"
+        dest: "{{ tooling_web_gobuster_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded Gobuster archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_web_gobuster_asset.name }}"
+        state: absent
+
+- name: Ensure the Gobuster binary is executable
+  ansible.builtin.file:
+    path: "{{ tooling_web_gobuster_install_dir }}/gobuster"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Expose the current Gobuster release
+  ansible.builtin.file:
+    src: "{{ tooling_web_gobuster_install_dir }}/gobuster"
+    dest: /usr/local/bin/gobuster
+    state: link
+    force: true
+
+- name: Resolve rolling web-tool source revisions
+  ansible.builtin.command:
+    argv:
+      - git
+      - ls-remote
+      - --exit-code
+      - "{{ item.repository }}"
+      - HEAD
+  loop:
+    - name: sqlmap
+      repository: "{{ tooling_web_sqlmap_repository }}"
+    - name: nikto
+      repository: "{{ tooling_web_nikto_repository }}"
+    - name: jwt_tool
+      repository: "{{ tooling_web_jwt_tool_repository }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: tooling_web_source_heads
+  changed_when: false
+
+- name: Validate rolling web-tool source revisions
+  ansible.builtin.assert:
+    that:
+      - item.stdout.split() | length == 2
+      - item.stdout.split()[0] is match('^[0-9a-f]{40}$')
+      - item.stdout.split()[1] == 'HEAD'
+    fail_msg: "The current {{ item.item.name }} source revision could not be resolved."
+  loop: "{{ tooling_web_source_heads.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Record rolling web-tool source revisions
+  ansible.builtin.set_fact:
+    tooling_web_sqlmap_commit: "{{ tooling_web_source_heads.results[0].stdout.split()[0] }}"
+    tooling_web_nikto_commit: "{{ tooling_web_source_heads.results[1].stdout.split()[0] }}"
+    tooling_web_jwt_tool_commit: "{{ tooling_web_source_heads.results[2].stdout.split()[0] }}"
+
+- name: Install the current sqlmap source
+  ansible.builtin.git:
+    repo: "{{ tooling_web_sqlmap_repository }}"
+    dest: "/opt/sqlmap-{{ tooling_web_sqlmap_commit }}"
+    version: "{{ tooling_web_sqlmap_commit }}"
+    recursive: false
+    update: false
+
+- name: Create the stable sqlmap path
+  ansible.builtin.file:
+    src: "/opt/sqlmap-{{ tooling_web_sqlmap_commit }}"
+    dest: /opt/sqlmap
+    state: link
+    force: true
+
+- name: Install the sqlmap command
+  ansible.builtin.template:
+    src: sqlmap.sh.j2
+    dest: /usr/local/bin/sqlmap
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the current Nikto source
+  ansible.builtin.git:
+    repo: "{{ tooling_web_nikto_repository }}"
+    dest: "/opt/nikto-{{ tooling_web_nikto_commit }}"
+    version: "{{ tooling_web_nikto_commit }}"
+    recursive: false
+    update: false
+
+- name: Create the stable Nikto path
+  ansible.builtin.file:
+    src: "/opt/nikto-{{ tooling_web_nikto_commit }}"
+    dest: /opt/nikto
+    state: link
+    force: true
+
+- name: Install the Nikto command
+  ansible.builtin.template:
+    src: nikto.sh.j2
+    dest: /usr/local/bin/nikto
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check whether the current jwt_tool source is installed
+  ansible.builtin.stat:
+    path: "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}/.deburner-install-complete"
+  register: tooling_web_jwt_tool_marker
+
+- name: Install current jwt_tool and its dependencies
+  when: not tooling_web_jwt_tool_marker.stat.exists
+  block:
+    - name: Clone the current jwt_tool source
+      ansible.builtin.git:
+        repo: "{{ tooling_web_jwt_tool_repository }}"
+        dest: "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}"
+        version: "{{ tooling_web_jwt_tool_commit }}"
+        recursive: false
+        update: false
+
+    - name: Create the jwt_tool virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}/.venv"
+        creates: "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}/.venv/bin/python"
+
+    - name: Install jwt_tool dependencies with uv
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}/.venv/bin/python"
+          - --requirements
+          - "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}/requirements.txt"
+      changed_when: true
+
+    - name: Mark the jwt_tool installation complete
+      ansible.builtin.copy:
+        content: "{{ tooling_web_jwt_tool_commit }}\n"
+        dest: "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}/.deburner-install-complete"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Create the stable jwt_tool path
+  ansible.builtin.file:
+    src: "/opt/jwt_tool-{{ tooling_web_jwt_tool_commit }}"
+    dest: /opt/jwt_tool
+    state: link
+    force: true
+
+- name: Install the jwt_tool command
+  ansible.builtin.template:
+    src: jwt_tool.sh.j2
+    dest: /usr/local/bin/jwt_tool
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable testssl.sh release
+  ansible.builtin.uri:
+    url: "{{ tooling_web_testssl_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_web_testssl_release
+  changed_when: false
+
+- name: Validate the latest stable testssl.sh release
+  ansible.builtin.assert:
+    that:
+      - not tooling_web_testssl_release.json.draft
+      - not tooling_web_testssl_release.json.prerelease
+      - tooling_web_testssl_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_web_testssl_release.json.html_url is match('^https://github\.com/testssl/testssl\.sh/releases/tag/')
+    fail_msg: GitHub did not return a valid stable testssl.sh release.
+
+- name: Define the current testssl.sh installation
+  ansible.builtin.set_fact:
+    tooling_web_testssl_install_dir: >-
+      /opt/testssl.sh-{{ tooling_web_testssl_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Install the current stable testssl.sh source
+  ansible.builtin.git:
+    repo: "{{ tooling_web_testssl_repository }}"
+    dest: "{{ tooling_web_testssl_install_dir }}"
+    version: "{{ tooling_web_testssl_release.json.tag_name }}"
+    depth: 1
+
+- name: Create the stable testssl.sh path
+  ansible.builtin.file:
+    src: "{{ tooling_web_testssl_install_dir }}"
+    dest: /opt/testssl.sh
+    state: link
+    force: true
+
+- name: Install the testssl.sh command
+  ansible.builtin.template:
+    src: testssl.sh.j2
+    dest: /usr/local/bin/testssl.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable ysoserial release
+  ansible.builtin.uri:
+    url: "{{ tooling_web_ysoserial_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_web_ysoserial_release
+  changed_when: false
+
+- name: Select the ysoserial standalone JAR
+  ansible.builtin.set_fact:
+    tooling_web_ysoserial_assets: >-
+      {{ tooling_web_ysoserial_release.json.assets
+         | selectattr('name', 'equalto', 'ysoserial-all.jar')
+         | list }}
+
+- name: Validate the latest stable ysoserial release
+  ansible.builtin.assert:
+    that:
+      - not tooling_web_ysoserial_release.json.draft
+      - not tooling_web_ysoserial_release.json.prerelease
+      - tooling_web_ysoserial_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_web_ysoserial_assets | length == 1
+      - tooling_web_ysoserial_assets[0].browser_download_url is match('^https://github\.com/frohoff/ysoserial/releases/download/')
+    fail_msg: The latest ysoserial release does not contain its standalone JAR.
+
+- name: Define the current ysoserial installation
+  ansible.builtin.set_fact:
+    tooling_web_ysoserial_asset: "{{ tooling_web_ysoserial_assets[0] }}"
+    tooling_web_ysoserial_install_dir: >-
+      /opt/ysoserial-{{ tooling_web_ysoserial_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Create the ysoserial version directory
+  ansible.builtin.file:
+    path: "{{ tooling_web_ysoserial_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the ysoserial standalone JAR
+  ansible.builtin.get_url:
+    url: "{{ tooling_web_ysoserial_asset.browser_download_url }}"
+    dest: "{{ tooling_web_ysoserial_install_dir }}/ysoserial-all.jar"
+    checksum: "{{ tooling_web_ysoserial_asset.digest | default(omit, true) }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Create the stable ysoserial path
+  ansible.builtin.file:
+    src: "{{ tooling_web_ysoserial_install_dir }}"
+    dest: /opt/ysoserial
+    state: link
+    force: true
+
+- name: Install the ysoserial command
+  ansible.builtin.template:
+    src: ysoserial.sh.j2
+    dest: /usr/local/bin/ysoserial
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Inspect installed web-tool commands
+  ansible.builtin.stat:
+    path: "/usr/local/bin/{{ item }}"
+  loop:
+    - ffuf
+    - gobuster
+    - sqlmap
+    - nikto
+    - jwt_tool
+    - testssl.sh
+    - ysoserial
+  register: tooling_web_commands
+
+- name: Require installed web-tool commands
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.executable
+    fail_msg: "The web-tool command is missing or not executable: {{ item.item }}"
+  loop: "{{ tooling_web_commands.results }}"
+  loop_control:
+    label: "{{ item.item }}"

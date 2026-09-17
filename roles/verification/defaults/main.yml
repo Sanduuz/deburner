@@ -15,11 +15,13 @@ verification_required_commands:
   - docker
   - exiftool
   - fdfind
+  - ffuf
   - fzf
   - gdb
   - gdb-multiarch
   - ghidra
   - gimp
+  - gobuster
   - gnome-terminal
   - go
   - hashcat
@@ -31,10 +33,12 @@ verification_required_commands:
   - impacket-secretsdump
   - impacket-wmiexec
   - john
+  - jwt_tool
   - ltrace
   - ldapsearch
   - meld
   - netexec
+  - nikto
   - nmap
   - nxc
   - nxcdb
@@ -51,8 +55,10 @@ verification_required_commands:
   - rustup
   - sqlite3
   - smbclient
+  - sqlmap
   - strace
   - tcpdump
+  - testssl.sh
   - tshark
   - uv
   - vol
@@ -63,6 +69,7 @@ verification_required_commands:
   - wireshark
   - wl-copy
   - yara
+  - ysoserial
   - zed
 
 verification_required_system_files:
@@ -75,7 +82,12 @@ verification_required_system_files:
   - /etc/systemd/system/deburner-firewall.service
   - /etc/sysctl.d/90-deburner.conf
   - /opt/burpsuite-community/burpsuite-community.jar
+  - /opt/jwt_tool/jwt_tool.py
+  - /opt/nikto/program/nikto.pl
   - /opt/peda/peda.py
+  - /opt/sqlmap/sqlmap.py
+  - /opt/testssl.sh/testssl.sh
+  - /opt/ysoserial/ysoserial-all.jar
   - /usr/share/seclists/README.md
 
 verification_required_user_files:

@@ -588,10 +588,24 @@ Binary Ninja credentials are stored by this project.
 
 ### Web security tooling
 
-`tooling-web.yml` detects the latest Professional / Community release listed by
-PortSwigger and installs its official standalone JAR under `/opt`. It creates the
-`burpsuite` command and a GNOME launcher, using Debian's OpenJDK 21 runtime. No
-PortSwigger account, login, paid license or license key is configured. Use is
+`tooling-web.yml` installs [ffuf](https://github.com/ffuf/ffuf),
+[Gobuster](https://github.com/OJ/gobuster),
+[sqlmap](https://github.com/sqlmapproject/sqlmap),
+[Nikto](https://github.com/sullo/nikto),
+[testssl.sh](https://github.com/testssl/testssl.sh),
+[jwt_tool](https://github.com/ticarpi/jwt_tool) and
+[ysoserial](https://github.com/frohoff/ysoserial) alongside Burp Suite Community
+Edition. The first two use the latest
+checksum-described official amd64 release archives. testssl.sh and ysoserial use
+their latest stable upstream releases. sqlmap, Nikto and jwt_tool use the current
+commits from their official repositories; jwt_tool dependencies live in an
+isolated uv virtual environment. Stable commands are exposed under
+`/usr/local/bin`, while their versioned installations remain under `/opt`.
+
+The playbook detects the latest Professional / Community release listed by
+PortSwigger and installs its official standalone JAR under `/opt`. It creates
+the `burpsuite` command and a GNOME launcher, using Debian's OpenJDK 21 runtime.
+No PortSwigger account, login, paid license or license key is configured. Use is
 still subject to
 [PortSwigger's terms](https://portswigger.net/burp/eula/community); review them
 before running the playbook. If the unified application asks for an edition on
@@ -603,6 +617,15 @@ download URL. It deliberately does not pin a checksum. If PortSwigger changes th
 release-page format, the role fails instead of guessing a version. The Java heap
 limit defaults to 4 GB and can be changed with `tooling_web_burp_max_heap` in
 `local.yml`.
+
+The upstream ysoserial release does not provide a checksum for its standalone
+JAR, so the role obtains the asset URL from the current non-draft GitHub release
+and downloads it over HTTPS without an independent digest. The source-based
+installations resolve a concrete current commit before cloning, which keeps a
+single provisioning run and its immediate idempotence check consistent while
+allowing later fresh installations to receive newer code. Run
+`tooling-analysis.yml` before the web playbook when invoking category playbooks
+individually, because jwt_tool uses the upstream uv installation.
 
 These upstream installs favor current tools over reproducible builds. Running the
 same revision of deburner at different times can install different versions.
@@ -711,8 +734,8 @@ expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
 Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
-Impacket, Certipy, NetExec, Responder, BloodHound container images, Burp Suite or
-SecLists.
+Impacket, Certipy, NetExec, Responder, BloodHound container images, ffuf,
+Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or SecLists.
 
 ## Modifications made
 
@@ -734,7 +757,7 @@ SecLists.
 | Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; build the current pycdc and pycdas; add stable commands and desktop launchers | Provide current native, Python-bytecode and Java reverse-engineering tools without accounts or stored license keys |
-| Web tooling | Resolve and install the current Burp Suite Community JAR with a command and desktop launcher | Provide a current account-free web proxy and testing toolkit |
+| Web tooling | Install current ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial and Burp Suite Community releases without configuring an account or license | Cover web fuzzing, discovery, injection, TLS, token and Java deserialization work through system-wide commands and an interactive proxy |
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
@@ -802,6 +825,7 @@ command -v smbclient ldapsearch hashcat john hydra responder certipy
 command -v impacket-GetUserSPNs impacket-ntlmrelayx impacket-psexec impacket-secretsdump impacket-wmiexec nxc netexec nxcdb
 command -v chromium gimp meld pavucontrol d-feet virt-manager zed
 command -v gdb gdb-multiarch pwn checksec r2 radare2 pycdc pycdas ghidra binaryninja burpsuite
+command -v ffuf gobuster sqlmap nikto testssl.sh jwt_tool ysoserial
 gdb --batch -ex 'peda show option' -ex quit
 ```
 
