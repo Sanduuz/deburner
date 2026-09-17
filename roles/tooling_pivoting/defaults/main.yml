@@ -1,0 +1,10 @@
+---
+# Debian provides sshuttle; Chisel and Ligolo-ng are installed from their
+# current upstream GitHub releases.
+tooling_pivoting_packages:
+  - ca-certificates
+  - sshuttle
+  - tar
+
+tooling_pivoting_chisel_release_api: https://api.github.com/repos/jpillora/chisel/releases/latest
+tooling_pivoting_ligolo_release_api: https://api.github.com/repos/nicocha30/ligolo-ng/releases/latest

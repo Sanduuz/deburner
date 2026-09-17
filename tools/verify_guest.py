@@ -176,6 +176,7 @@ def verify_tooling() -> None:
         "cargo",
         "certipy",
         "checksec",
+        "chisel",
         "chromium",
         "curl",
         "exiftool",
@@ -200,6 +201,8 @@ def verify_tooling() -> None:
         "jwt_tool",
         "ltrace",
         "ldapsearch",
+        "ligolo-agent",
+        "ligolo-proxy",
         "meld",
         "netexec",
         "nikto",
@@ -218,6 +221,7 @@ def verify_tooling() -> None:
         "sqlite3",
         "smbclient",
         "sqlmap",
+        "sshuttle",
         "strace",
         "tcpdump",
         "testssl.sh",
@@ -239,6 +243,8 @@ def verify_tooling() -> None:
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
     file_exists("/opt/jwt_tool/jwt_tool.py")
+    file_exists("/opt/ligolo-ng/agent", executable=True)
+    file_exists("/opt/ligolo-ng/proxy", executable=True)
     file_exists("/opt/nikto/program/nikto.pl")
     file_exists("/opt/sqlmap/sqlmap.py")
     file_exists("/opt/testssl.sh/testssl.sh")

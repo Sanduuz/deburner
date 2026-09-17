@@ -10,6 +10,7 @@ verification_required_commands:
   - cargo
   - certipy
   - checksec
+  - chisel
   - chromium
   - curl
   - docker
@@ -36,6 +37,8 @@ verification_required_commands:
   - jwt_tool
   - ltrace
   - ldapsearch
+  - ligolo-agent
+  - ligolo-proxy
   - meld
   - netexec
   - nikto
@@ -56,6 +59,7 @@ verification_required_commands:
   - sqlite3
   - smbclient
   - sqlmap
+  - sshuttle
   - strace
   - tcpdump
   - testssl.sh
@@ -83,6 +87,8 @@ verification_required_system_files:
   - /etc/sysctl.d/90-deburner.conf
   - /opt/burpsuite-community/burpsuite-community.jar
   - /opt/jwt_tool/jwt_tool.py
+  - /opt/ligolo-ng/agent
+  - /opt/ligolo-ng/proxy
   - /opt/nikto/program/nikto.pl
   - /opt/peda/peda.py
   - /opt/sqlmap/sqlmap.py

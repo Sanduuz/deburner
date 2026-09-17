@@ -22,6 +22,7 @@ docker_group_users: []
 # role defaults for their complete values.
 # tooling_core_packages: []
 # tooling_network_packages: []
+# tooling_pivoting_packages: []
 # tooling_analysis_packages: []
 # tooling_windows_packages: []
 # tooling_bloodhound_packages: []

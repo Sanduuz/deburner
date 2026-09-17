@@ -46,10 +46,11 @@ Ansible collections are required.
 
 Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
-playbooks in dependency order: hardening, core, network, analysis, Windows/Active
-Directory and desktop tooling, exploitation tooling, reverse-engineering tooling,
-web tooling, SecLists, Docker, optional BloodHound staging, user and desktop
-customizations, and the optional offline-mirror sync. Optional features remain
+playbooks in dependency order: hardening, core, network, pivoting, analysis,
+Windows/Active Directory and desktop tooling, exploitation tooling,
+reverse-engineering tooling, web tooling, SecLists, Docker, optional BloodHound
+staging, user and desktop customizations, and the optional offline-mirror sync.
+Optional features remain
 disabled unless selected in `local.yml`. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
 you can rerun them during initial provisioning or to apply a deliberate
@@ -246,6 +247,7 @@ ansible-playbook preflight.yml
 ansible-playbook hardening.yml --ask-become-pass
 ansible-playbook tooling-core.yml --ask-become-pass
 ansible-playbook tooling-network.yml --ask-become-pass
+ansible-playbook tooling-pivoting.yml --ask-become-pass
 ansible-playbook tooling-analysis.yml --ask-become-pass
 ansible-playbook tooling-windows.yml --ask-become-pass
 ansible-playbook tooling-desktop.yml --ask-become-pass
@@ -426,6 +428,19 @@ Unprivileged packet capture is explicitly disabled. Use `sudo tcpdump` or
 `sudo tshark` when capture privileges are required, then inspect saved capture
 files without root privileges. The package list can be replaced with
 `tooling_network_packages` in `local.yml`.
+
+### Pivoting tooling
+
+`tooling-pivoting.yml` installs sshuttle from Debian and the current stable
+upstream Chisel and Ligolo-ng releases. Chisel uses its checksum-described amd64
+Debian package. Both checksum-described Ligolo-ng amd64 archives are installed,
+with the proxy exposed as `ligolo-proxy` and the agent as `ligolo-agent`.
+
+The playbook installs commands only. It does not start a listener or service,
+create routes or TUN interfaces, grant Linux capabilities, or open firewall
+ports. Invoke the tools deliberately during an exercise; operations that change
+interfaces or routes still require suitable privileges. The Debian package list
+can be replaced with `tooling_pivoting_packages` in `local.yml`.
 
 ### System and file analysis tooling
 
@@ -734,8 +749,9 @@ expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
 Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
-Impacket, Certipy, NetExec, Responder, BloodHound container images, ffuf,
-Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or SecLists.
+Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, BloodHound container
+images, ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite
+or SecLists.
 
 ## Modifications made
 
@@ -751,6 +767,7 @@ Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or SecLists
 | Docker | Configure Docker's signed upstream stable repository; install `docker-ce`, CLI, containerd, Compose and Buildx plugins; manage `/etc/docker/daemon.json`; enable `docker.service` | Provide a current container toolchain with bounded local logs and no network-exposed daemon API |
 | Core tooling | Install command-line, archive, Python and native build packages from Debian; install the current upstream stable Rust toolchain with rustup | Provide a general base for CTF tooling without modifying personal shell or editor settings |
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
+| Pivoting tooling | Install Debian's sshuttle and current checksum-described Chisel and Ligolo-ng releases; leave listeners, routes and interfaces unconfigured | Provide on-demand tunnelling and pivoting clients and servers without changing network state during provisioning |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
 | Windows / AD tooling | Install SMB/LDAP clients, Hashcat, John, Hydra, current stable Impacket, Certipy and NetExec, plus the current Responder source; expose their commands system-wide without enabling Responder | Support Windows and Active Directory discovery, authentication, credential recovery, relay and remote administration exercises without modifying Debian's Python environment or starting listeners |
 | BloodHound CE | Optionally install the checksum-described current BloodHound CLI, stage its complete Docker stack, preserve the initial local admin password root-only, and leave the containers stopped | Make graph-based Active Directory analysis available offline without exposing or running its web interface by default |
@@ -816,6 +833,7 @@ sudo docker info
 sudo docker compose version
 sudo docker buildx version
 command -v git rg python3 pipx go rustup rustc rust-analyzer cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
+command -v chisel sshuttle ligolo-agent ligolo-proxy
 rustup --version
 rustc --version
 cargo --version

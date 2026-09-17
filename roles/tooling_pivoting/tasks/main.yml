@@ -1,0 +1,241 @@
+---
+- name: Validate pivoting tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_pivoting_packages | type_debug == 'list'
+      - tooling_pivoting_packages | length > 0
+      - tooling_pivoting_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_pivoting_packages | length
+      - tooling_pivoting_chisel_release_api == 'https://api.github.com/repos/jpillora/chisel/releases/latest'
+      - tooling_pivoting_ligolo_release_api == 'https://api.github.com/repos/nicocha30/ligolo-ng/releases/latest'
+    fail_msg: Review the pivoting tooling variables; one or more values are invalid.
+
+- name: Install Debian pivoting packages
+  ansible.builtin.apt:
+    name: "{{ tooling_pivoting_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the pivoting tooling artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read the latest stable Chisel release
+  ansible.builtin.uri:
+    url: "{{ tooling_pivoting_chisel_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_pivoting_chisel_release
+  changed_when: false
+
+- name: Define the expected Chisel package name
+  ansible.builtin.set_fact:
+    tooling_pivoting_chisel_version: >-
+      {{ tooling_pivoting_chisel_release.json.tag_name | regex_replace('^v', '') }}
+    tooling_pivoting_chisel_asset_name: >-
+      chisel_{{ tooling_pivoting_chisel_release.json.tag_name | regex_replace('^v', '') }}_linux_amd64.deb
+
+- name: Select the Chisel amd64 Debian package
+  ansible.builtin.set_fact:
+    tooling_pivoting_chisel_assets: >-
+      {{ tooling_pivoting_chisel_release.json.assets
+         | selectattr('name', 'equalto', tooling_pivoting_chisel_asset_name)
+         | list }}
+
+- name: Validate the latest stable Chisel release
+  ansible.builtin.assert:
+    that:
+      - not tooling_pivoting_chisel_release.json.draft
+      - not tooling_pivoting_chisel_release.json.prerelease
+      - tooling_pivoting_chisel_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_pivoting_chisel_assets | length == 1
+      - tooling_pivoting_chisel_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_pivoting_chisel_assets[0].browser_download_url is match('^https://github\.com/jpillora/chisel/releases/download/')
+    fail_msg: The latest Chisel release does not contain the expected checksum-described Debian package.
+
+- name: Define the current Chisel package
+  ansible.builtin.set_fact:
+    tooling_pivoting_chisel_asset: "{{ tooling_pivoting_chisel_assets[0] }}"
+    tooling_pivoting_chisel_package: "/var/cache/deburner/{{ tooling_pivoting_chisel_assets[0].name }}"
+
+- name: Download the current Chisel Debian package
+  ansible.builtin.get_url:
+    url: "{{ tooling_pivoting_chisel_asset.browser_download_url }}"
+    dest: "{{ tooling_pivoting_chisel_package }}"
+    checksum: "{{ tooling_pivoting_chisel_asset.digest }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Install the current Chisel release
+  ansible.builtin.apt:
+    deb: "{{ tooling_pivoting_chisel_package }}"
+    state: present
+
+- name: Read the latest stable Ligolo-ng release
+  ansible.builtin.uri:
+    url: "{{ tooling_pivoting_ligolo_release_api }}"
+    return_content: true
+    headers:
+      Accept: application/vnd.github+json
+  register: tooling_pivoting_ligolo_release
+  changed_when: false
+
+- name: Define the expected Ligolo-ng archives
+  ansible.builtin.set_fact:
+    tooling_pivoting_ligolo_version: >-
+      {{ tooling_pivoting_ligolo_release.json.tag_name | regex_replace('^v', '') }}
+    tooling_pivoting_ligolo_agent_asset_name: >-
+      ligolo-ng_agent_{{ tooling_pivoting_ligolo_release.json.tag_name | regex_replace('^v', '') }}_linux_amd64.tar.gz
+    tooling_pivoting_ligolo_proxy_asset_name: >-
+      ligolo-ng_proxy_{{ tooling_pivoting_ligolo_release.json.tag_name | regex_replace('^v', '') }}_linux_amd64.tar.gz
+
+- name: Select the Ligolo-ng amd64 Linux archives
+  ansible.builtin.set_fact:
+    tooling_pivoting_ligolo_agent_assets: >-
+      {{ tooling_pivoting_ligolo_release.json.assets
+         | selectattr('name', 'equalto', tooling_pivoting_ligolo_agent_asset_name)
+         | list }}
+    tooling_pivoting_ligolo_proxy_assets: >-
+      {{ tooling_pivoting_ligolo_release.json.assets
+         | selectattr('name', 'equalto', tooling_pivoting_ligolo_proxy_asset_name)
+         | list }}
+
+- name: Validate the latest stable Ligolo-ng release
+  ansible.builtin.assert:
+    that:
+      - not tooling_pivoting_ligolo_release.json.draft
+      - not tooling_pivoting_ligolo_release.json.prerelease
+      - tooling_pivoting_ligolo_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_pivoting_ligolo_agent_assets | length == 1
+      - tooling_pivoting_ligolo_proxy_assets | length == 1
+      - tooling_pivoting_ligolo_agent_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_pivoting_ligolo_proxy_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+      - tooling_pivoting_ligolo_agent_assets[0].browser_download_url is match('^https://github\.com/nicocha30/ligolo-ng/releases/download/')
+      - tooling_pivoting_ligolo_proxy_assets[0].browser_download_url is match('^https://github\.com/nicocha30/ligolo-ng/releases/download/')
+    fail_msg: The latest Ligolo-ng release does not contain the expected checksum-described archives.
+
+- name: Define the current Ligolo-ng installation
+  ansible.builtin.set_fact:
+    tooling_pivoting_ligolo_agent_asset: "{{ tooling_pivoting_ligolo_agent_assets[0] }}"
+    tooling_pivoting_ligolo_proxy_asset: "{{ tooling_pivoting_ligolo_proxy_assets[0] }}"
+    tooling_pivoting_ligolo_install_dir: "/opt/ligolo-ng-{{ tooling_pivoting_ligolo_version }}"
+
+- name: Check for the current Ligolo-ng agent
+  ansible.builtin.stat:
+    path: "{{ tooling_pivoting_ligolo_install_dir }}/agent"
+  register: tooling_pivoting_ligolo_agent
+
+- name: Check for the current Ligolo-ng proxy
+  ansible.builtin.stat:
+    path: "{{ tooling_pivoting_ligolo_install_dir }}/proxy"
+  register: tooling_pivoting_ligolo_proxy
+
+- name: Install the current Ligolo-ng release
+  when: not tooling_pivoting_ligolo_agent.stat.exists or not tooling_pivoting_ligolo_proxy.stat.exists
+  block:
+    - name: Create the Ligolo-ng version directory
+      ansible.builtin.file:
+        path: "{{ tooling_pivoting_ligolo_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download the Ligolo-ng archives
+      ansible.builtin.get_url:
+        url: "{{ item.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ item.name }}"
+        checksum: "{{ item.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+      loop:
+        - "{{ tooling_pivoting_ligolo_agent_asset }}"
+        - "{{ tooling_pivoting_ligolo_proxy_asset }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Extract the Ligolo-ng archives under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ item.name }}"
+        dest: "{{ tooling_pivoting_ligolo_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+      loop:
+        - "{{ tooling_pivoting_ligolo_agent_asset }}"
+        - "{{ tooling_pivoting_ligolo_proxy_asset }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Remove the downloaded Ligolo-ng archives
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ item.name }}"
+        state: absent
+      loop:
+        - "{{ tooling_pivoting_ligolo_agent_asset }}"
+        - "{{ tooling_pivoting_ligolo_proxy_asset }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+- name: Ensure the Ligolo-ng executables have safe permissions
+  ansible.builtin.file:
+    path: "{{ tooling_pivoting_ligolo_install_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - agent
+    - proxy
+
+- name: Create the stable Ligolo-ng path
+  ansible.builtin.file:
+    src: "{{ tooling_pivoting_ligolo_install_dir }}"
+    dest: /opt/ligolo-ng
+    state: link
+    force: true
+
+- name: Expose the Ligolo-ng commands
+  ansible.builtin.file:
+    src: "/opt/ligolo-ng/{{ item.source }}"
+    dest: "/usr/local/bin/{{ item.command }}"
+    state: link
+    force: true
+  loop:
+    - source: agent
+      command: ligolo-agent
+    - source: proxy
+      command: ligolo-proxy
+  loop_control:
+    label: "{{ item.command }}"
+
+- name: Verify pivoting commands are executable
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/bin/chisel
+    - /usr/bin/sshuttle
+    - /usr/local/bin/ligolo-agent
+    - /usr/local/bin/ligolo-proxy
+  register: tooling_pivoting_commands
+
+- name: Require working pivoting command installations
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.executable
+    fail_msg: "{{ item.item }} was not installed as an executable command."
+  loop: "{{ tooling_pivoting_commands.results }}"
+  loop_control:
+    label: "{{ item.item }}"
