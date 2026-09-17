@@ -156,10 +156,12 @@ make test-clean
 
 `test-stop` requests a graceful shutdown and waits for up to 60 seconds. Use
 `make test-destroy` only when a running guest cannot shut down normally.
-`test-clean` refuses to remove a running guest, an unexpected domain name, state
-outside this repository, or a directory without the matching safety marker. It
-keeps the verified base image for the next test. `make test-image-purge` removes
-the complete image cache only when no `deburner-test` domain exists.
+`test-clean` validates the domain and safety marker, immediately force-stops a
+running guest, undefines the domain and removes its overlay and local state. It
+refuses an unexpected domain name, state outside this repository, or a directory
+without the matching safety marker. It keeps the verified base image for the next test.
+`make test-image-purge` removes the complete image cache only when no
+`deburner-test` domain exists.
 
 Each new VM receives a NoCloud seed that installs Ansible, a Debian GNOME
 baseline and `qemu-guest-agent`, expands the root filesystem, and does not create
@@ -230,8 +232,8 @@ ignored by Git. Successful tests remove their VM automatically. A failed test
 preserves its VM and overlay for inspection; use `make test-status` and
 `make test-console`. During development, `make test-refresh` updates
 `/opt/deburner` from the same non-ignored working-tree file set through QGA, so a
-failed stage can be rerun without rebuilding the guest. Stop or destroy the VM
-before `make test-clean`.
+failed stage can be rerun without rebuilding the guest. Run `make test-clean`
+when inspection is complete; it shuts down and removes the disposable VM.
 
 Resource settings and the connection can be overridden for one invocation:
 

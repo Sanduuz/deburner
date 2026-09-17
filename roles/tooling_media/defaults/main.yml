@@ -6,7 +6,7 @@ tooling_media_packages:
   - foremost
   - imagemagick
   - libsox-fmt-all
-  - openjdk-21-jre
+  - openjdk-21-jdk
   - outguess
   - ruby
   - ruby-rubygems

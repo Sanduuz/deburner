@@ -1284,7 +1284,7 @@ def run_workflow(config: Config) -> None:
     except Exception:
         print(
             "The failed test VM and its overlay were preserved for inspection. "
-            "Use make test-status or make test-console, then stop it before make test-clean.",
+            "Use make test-status or make test-console, then use make test-clean when finished.",
             file=sys.stderr,
         )
         raise
@@ -1306,7 +1306,7 @@ def clean(config: Config) -> None:
 
     validate_marker(config)
     if exists and is_running(config):
-        raise VmError("Refusing cleanup while the VM is running; stop or destroy it first.")
+        destroy(config)
     if exists:
         virsh(config, "undefine", config.name)
     shutil.rmtree(config.state_dir)
