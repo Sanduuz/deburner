@@ -34,6 +34,9 @@
 - name: Install reverse-engineering tooling
   ansible.builtin.import_playbook: tooling-reversing.yml
 
+- name: Install Android analysis tooling
+  ansible.builtin.import_playbook: tooling-mobile.yml
+
 - name: Install web security tooling
   ansible.builtin.import_playbook: tooling-web.yml
 

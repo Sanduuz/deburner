@@ -171,6 +171,10 @@ def verify_customization() -> None:
 def verify_tooling() -> None:
     commands = [
         "7z",
+        "aapt",
+        "adb",
+        "apksigner",
+        "apktool",
         "audacity",
         "binwalk",
         "batcat",
@@ -185,7 +189,10 @@ def verify_tooling() -> None:
         "fdfind",
         "ffmpeg",
         "ffuf",
+        "fastboot",
         "foremost",
+        "frida",
+        "frida-ps",
         "fzf",
         "gdb",
         "gdb-multiarch",
@@ -202,6 +209,8 @@ def verify_tooling() -> None:
         "impacket-secretsdump",
         "impacket-wmiexec",
         "john",
+        "jadx",
+        "jadx-gui",
         "jwt_tool",
         "ltrace",
         "ldapsearch",
@@ -216,6 +225,7 @@ def verify_tooling() -> None:
         "nmap",
         "nxc",
         "nxcdb",
+        "objection",
         "openvpn",
         "outguess",
         "pwn",
@@ -250,6 +260,7 @@ def verify_tooling() -> None:
         "yara",
         "ysoserial",
         "zed",
+        "zipalign",
         "zsteg",
     ]
     for command in commands:
@@ -263,6 +274,8 @@ def verify_tooling() -> None:
     file_exists("/opt/zsteg/bin/zsteg", executable=True)
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
+    file_exists("/opt/apktool/apktool.jar")
+    file_exists("/opt/jadx/bin/jadx", executable=True)
     file_exists("/opt/jwt_tool/jwt_tool.py")
     file_exists("/opt/ligolo-ng/agent", executable=True)
     file_exists("/opt/ligolo-ng/proxy", executable=True)

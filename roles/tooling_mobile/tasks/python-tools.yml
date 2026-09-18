@@ -1,0 +1,139 @@
+---
+- name: Read current mobile Python tool releases
+  ansible.builtin.uri:
+    url: "{{ item.url }}"
+    return_content: true
+  loop:
+    - name: frida-tools
+      url: "{{ tooling_mobile_frida_pypi_api }}"
+    - name: objection
+      url: "{{ tooling_mobile_objection_pypi_api }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: tooling_mobile_python_releases
+  changed_when: false
+
+- name: Record current mobile Python tool versions
+  ansible.builtin.set_fact:
+    tooling_mobile_frida_version: "{{ tooling_mobile_python_releases.results[0].json.info.version }}"
+    tooling_mobile_objection_version: "{{ tooling_mobile_python_releases.results[1].json.info.version }}"
+
+- name: Validate current mobile Python tool versions
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_frida_version is match('^[0-9]+(?:\.[0-9]+)+$')
+      - tooling_mobile_objection_version is match('^[0-9]+(?:\.[0-9]+)+$')
+    fail_msg: PyPI did not return recognizable stable Frida and Objection versions.
+
+- name: Define mobile Python tool environments
+  ansible.builtin.set_fact:
+    tooling_mobile_frida_install_dir: "/opt/frida-tools-{{ tooling_mobile_frida_version }}"
+    tooling_mobile_objection_install_dir: "/opt/objection-{{ tooling_mobile_objection_version }}"
+
+- name: Inspect the current Frida tools environment
+  ansible.builtin.stat:
+    path: "{{ tooling_mobile_frida_install_dir }}/.deburner-install-complete"
+  register: tooling_mobile_frida_marker
+  check_mode: false
+
+- name: Install current Frida tools in an isolated environment
+  when: not tooling_mobile_frida_marker.stat.exists
+  block:
+    - name: Create the Frida tools virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "{{ tooling_mobile_frida_install_dir }}"
+        creates: "{{ tooling_mobile_frida_install_dir }}/bin/python"
+
+    - name: Install Frida tools
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ tooling_mobile_frida_install_dir }}/bin/python"
+          - "frida-tools=={{ tooling_mobile_frida_version }}"
+      changed_when: true
+
+    - name: Mark the Frida tools environment complete
+      ansible.builtin.copy:
+        content: "{{ tooling_mobile_frida_version }}\n"
+        dest: "{{ tooling_mobile_frida_install_dir }}/.deburner-install-complete"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Inspect the current Objection environment
+  ansible.builtin.stat:
+    path: "{{ tooling_mobile_objection_install_dir }}/.deburner-install-complete"
+  register: tooling_mobile_objection_marker
+  check_mode: false
+
+- name: Install current Objection in an isolated environment
+  when: not tooling_mobile_objection_marker.stat.exists
+  block:
+    - name: Create the Objection virtual environment
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - venv
+          - --python
+          - /usr/bin/python3
+          - "{{ tooling_mobile_objection_install_dir }}"
+        creates: "{{ tooling_mobile_objection_install_dir }}/bin/python"
+
+    - name: Install Objection
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ tooling_mobile_objection_install_dir }}/bin/python"
+          - "objection=={{ tooling_mobile_objection_version }}"
+      changed_when: true
+
+    - name: Mark the Objection environment complete
+      ansible.builtin.copy:
+        content: "{{ tooling_mobile_objection_version }}\n"
+        dest: "{{ tooling_mobile_objection_install_dir }}/.deburner-install-complete"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Install stable Frida commands
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_frida_install_dir }}/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - frida
+    - frida-apk
+    - frida-compile
+    - frida-create
+    - frida-discover
+    - frida-itrace
+    - frida-join
+    - frida-kill
+    - frida-ls
+    - frida-ls-devices
+    - frida-pm
+    - frida-ps
+    - frida-pull
+    - frida-push
+    - frida-rm
+    - frida-strace
+    - frida-trace
+
+- name: Install the stable Objection command
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_objection_install_dir }}/bin/objection"
+    dest: /usr/local/bin/objection
+    state: link
+    force: true

@@ -48,7 +48,7 @@ Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, pivoting, analysis,
 steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
-reverse-engineering tooling, web tooling, SecLists, Docker, C2 tooling, optional
+reverse-engineering tooling, Android tooling, web tooling, SecLists, Docker, C2 tooling, optional
 BloodHound staging, user and desktop customizations, and the optional
 offline-mirror sync. It then writes a provisioning manifest describing the
 resulting installation. Optional features remain disabled unless selected in
@@ -257,6 +257,7 @@ ansible-playbook tooling-windows.yml --ask-become-pass
 ansible-playbook tooling-desktop.yml --ask-become-pass
 ansible-playbook tooling-exploitation.yml --ask-become-pass
 ansible-playbook tooling-reversing.yml --ask-become-pass
+ansible-playbook tooling-mobile.yml --ask-become-pass
 ansible-playbook tooling-web.yml --ask-become-pass
 ansible-playbook tooling-wordlists.yml --ask-become-pass
 ansible-playbook docker.yml --ask-become-pass
@@ -650,6 +651,72 @@ Binary Ninja Free requires no account or license key. Its use remains subject to
 its usage restrictions. Review those terms before running the playbook. No
 Binary Ninja credentials are stored by this project.
 
+### Android tooling
+
+`tooling-mobile.yml` always installs ADB, Fastboot, AAPT, APK signing and alignment
+utilities, the current stable upstream JADX and Apktool releases, and current
+Frida command-line tools and Objection. JADX and Apktool use versioned directories
+under `/opt` and stable commands under `/usr/local/bin`. Their GitHub release
+artifacts are checked against the SHA-256 digests published in the current
+release metadata. Frida and Objection each use a separate uv-managed virtual
+environment so their Python dependencies do not modify Debian's Python
+installation. Run `tooling-analysis.yml` first when invoking this category
+playbook separately, because it provides uv.
+
+The installed Frida commands are host-side clients. The role does not download
+or deploy `frida-server`, because its version and architecture must match the
+specific target device. It also does not start ADB, attach devices, enable USB
+debugging, patch applications or launch instrumentation sessions.
+
+Android Studio and its emulator consume considerably more storage, so their
+profile is disabled by default. To install it during the standard provisioning
+run, first review the [Android SDK license](https://developer.android.com/studio/terms),
+then set both values in `local.yml`:
+
+```yaml
+tooling_mobile_android_studio_enabled: true
+tooling_mobile_android_licenses_accepted: true
+```
+
+The optional profile reads Google's current
+[Android Studio download page](https://developer.android.com/studio), selects
+the current Linux Android Studio and command-line tool archives, and verifies
+their published SHA-256 checksums. It installs the stable SDK platform tools,
+emulator, newest stable Google APIs x86_64 system image and matching Android
+platform under `/opt/android-sdk`. It creates a stopped, unrooted AVD named
+`deburner` for the configured desktop user. That image does not include the Play
+Store.
+
+The same profile also installs a distinct Android 14/API 34 Google Play x86_64
+image and creates `deburner-rooted`. It resolves the current commit from the
+official [rootAVD repository](https://gitlab.com/newbit/rootAVD), checks out that
+exact commit under `/opt`, boots the AVD headlessly, and uses rootAVD to patch the
+image with the current stable Magisk selected by rootAVD. A separate SDK system
+image is required because rootAVD changes the shared `ramdisk.img`; patching the
+newest image would also change every AVD that uses it. API 34 is the newest
+Android generation explicitly supported by the current rootAVD implementation.
+The playbook cold-boots the patched image, verifies the Magisk application and
+`su`, then stops the emulator.
+
+rootAVD downloads Magisk using `wget --no-check-certificate`. This is upstream
+behavior and means TLS certificate validation does not protect that download.
+The role verifies that the resulting ramdisk differs from its backup and boots
+with Magisk, but it cannot independently authenticate the downloaded Magisk
+artifact. Review rootAVD before enabling this profile. Neither AVD is configured
+with a Google account.
+
+The profile can consume tens of gigabytes once Android Studio, the SDK, emulator,
+system image and AVD data are present. Group membership takes effect after the
+normal post-provisioning reboot. The first interactive `su` request opens a
+Magisk prompt inside the rooted AVD; grant `com.android.shell` access there.
+Start either AVD from Android Studio's Device Manager or from a terminal:
+
+```sh
+emulator -avd deburner
+emulator -avd deburner-rooted
+adb shell su
+```
+
 ### Web security tooling
 
 `tooling-web.yml` installs [ffuf](https://github.com/ffuf/ffuf),
@@ -801,7 +868,8 @@ Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2
 Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, Sliver, Metasploit,
 Tuoni source or container images, zsteg, StegSolve, BloodHound container images,
 ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or
-SecLists.
+SecLists. It also does not contain JADX, Apktool, Frida, Objection, Android
+Studio, Android SDK components, Android system images, rootAVD or Magisk.
 
 ### Provisioning manifest
 
@@ -854,6 +922,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; build the current pycdc and pycdas; add stable commands and desktop launchers | Provide current native, Python-bytecode and Java reverse-engineering tools without accounts or stored license keys |
+| Android tooling | Install Android device, APK inspection, signing, decompilation and instrumentation clients; optionally install current Android Studio, SDK, emulator, an unrooted newest-stable AVD, and a rootAVD/Magisk-patched Android 14 AVD | Support static and dynamic Android challenge analysis while keeping the large development and emulation profile configuration-gated |
 | Web tooling | Install current ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial and Burp Suite Community releases without configuring an account or license | Cover web fuzzing, discovery, injection, TLS, token and Java deserialization work through system-wide commands and an interactive proxy |
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
@@ -928,6 +997,7 @@ command -v smbclient ldapsearch hashcat john hydra responder certipy
 command -v impacket-GetUserSPNs impacket-ntlmrelayx impacket-psexec impacket-secretsdump impacket-wmiexec nxc netexec nxcdb
 command -v chromium gimp meld pavucontrol d-feet virt-manager zed
 command -v gdb gdb-multiarch pwn checksec r2 radare2 pycdc pycdas ghidra binaryninja burpsuite
+command -v adb fastboot aapt apksigner zipalign apktool jadx jadx-gui frida frida-ps objection
 command -v ffuf gobuster sqlmap nikto testssl.sh jwt_tool ysoserial
 gdb --batch -ex 'peda show option' -ex quit
 ```

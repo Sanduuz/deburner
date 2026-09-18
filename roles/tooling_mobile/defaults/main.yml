@@ -1,0 +1,47 @@
+---
+tooling_mobile_packages:
+  - aapt
+  - adb
+  - android-sdk-platform-tools-common
+  - apksigner
+  - ca-certificates
+  - cpio
+  - fastboot
+  - file
+  - git
+  - openjdk-21-jre
+  - python3
+  - unzip
+  - wget
+  - xxd
+  - zipalign
+
+tooling_mobile_github_api_headers:
+  Accept: application/vnd.github+json
+  X-GitHub-Api-Version: '2022-11-28'
+
+tooling_mobile_jadx_release_api: https://api.github.com/repos/skylot/jadx/releases/latest
+tooling_mobile_apktool_release_api: https://api.github.com/repos/iBotPeaches/Apktool/releases/latest
+tooling_mobile_frida_pypi_api: https://pypi.org/pypi/frida-tools/json
+tooling_mobile_objection_pypi_api: https://pypi.org/pypi/objection/json
+
+# Android Studio, its SDK, the emulator and an AVD are intentionally optional.
+tooling_mobile_android_studio_enabled: false
+tooling_mobile_android_licenses_accepted: false
+tooling_mobile_android_download_page: https://developer.android.com/studio
+tooling_mobile_android_sdk_root: /opt/android-sdk
+tooling_mobile_android_avd_name: deburner
+tooling_mobile_android_avd_device: pixel_7
+tooling_mobile_android_system_image_flavor: google_apis
+tooling_mobile_android_system_image_architecture: x86_64
+
+# rootAVD currently documents Android 14 support. Use a distinct Play image so
+# patching its shared ramdisk does not alter the newest unrooted AVD image.
+tooling_mobile_rootavd_repository: https://gitlab.com/newbit/rootAVD.git
+tooling_mobile_rootavd_branch_api: https://gitlab.com/api/v4/projects/newbit%2FrootAVD/repository/branches/master
+tooling_mobile_android_rooted_api_level: 34
+tooling_mobile_android_rooted_system_image_flavor: google_apis_playstore
+tooling_mobile_android_rooted_avd_name: deburner-rooted
+tooling_mobile_android_emulator_port: 5554
+tooling_mobile_android_boot_retries: 120
+tooling_mobile_rootavd_patch_timeout: 1800

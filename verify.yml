@@ -22,6 +22,11 @@
         file: roles/offline_mirror/defaults/main.yml
         name: verification_offline_mirror_defaults
 
+    - name: Load the mobile tooling defaults for verification
+      ansible.builtin.include_vars:
+        file: roles/tooling_mobile/defaults/main.yml
+        name: verification_mobile_defaults
+
     - name: Require the supported local Debian baseline
       ansible.builtin.assert:
         that:

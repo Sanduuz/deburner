@@ -3,6 +3,10 @@ verification_required_commands:
   - 7z
   - aa-status
   - ansible-playbook
+  - aapt
+  - adb
+  - apksigner
+  - apktool
   - audacity
   - batcat
   - binwalk
@@ -20,6 +24,9 @@ verification_required_commands:
   - ffmpeg
   - ffuf
   - foremost
+  - fastboot
+  - frida
+  - frida-ps
   - fzf
   - gdb
   - gdb-multiarch
@@ -37,6 +44,8 @@ verification_required_commands:
   - impacket-secretsdump
   - impacket-wmiexec
   - john
+  - jadx
+  - jadx-gui
   - jwt_tool
   - ltrace
   - ldapsearch
@@ -51,6 +60,7 @@ verification_required_commands:
   - nmap
   - nxc
   - nxcdb
+  - objection
   - openvpn
   - outguess
   - pwn
@@ -90,6 +100,7 @@ verification_required_commands:
   - yara
   - ysoserial
   - zed
+  - zipalign
   - zsteg
 
 verification_required_system_files:
@@ -103,6 +114,8 @@ verification_required_system_files:
   - /etc/systemd/system/deburner-firewall.service
   - /etc/sysctl.d/90-deburner.conf
   - /opt/burpsuite-community/burpsuite-community.jar
+  - /opt/apktool/apktool.jar
+  - /opt/jadx/bin/jadx
   - /opt/jwt_tool/jwt_tool.py
   - /opt/ligolo-ng/agent
   - /opt/ligolo-ng/proxy

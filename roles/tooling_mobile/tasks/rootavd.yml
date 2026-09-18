@@ -1,0 +1,336 @@
+---
+- name: Define the rooted Android system image
+  ansible.builtin.set_fact:
+    tooling_mobile_android_rooted_system_image: >-
+      {{ 'system-images;android-' ~ (tooling_mobile_android_rooted_api_level | string)
+         ~ ';' ~ tooling_mobile_android_rooted_system_image_flavor
+         ~ ';' ~ tooling_mobile_android_system_image_architecture }}
+    tooling_mobile_android_rooted_system_image_dir: >-
+      {{ tooling_mobile_android_sdk_root
+         ~ '/system-images/android-' ~ (tooling_mobile_android_rooted_api_level | string)
+         ~ '/' ~ tooling_mobile_android_rooted_system_image_flavor
+         ~ '/' ~ tooling_mobile_android_system_image_architecture }}
+    tooling_mobile_rootavd_ramdisk_relative: >-
+      {{ 'system-images/android-' ~ (tooling_mobile_android_rooted_api_level | string)
+         ~ '/' ~ tooling_mobile_android_rooted_system_image_flavor
+         ~ '/' ~ tooling_mobile_android_system_image_architecture
+         ~ '/ramdisk.img' }}
+
+- name: Require the rootAVD-compatible Android system image
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_android_rooted_system_image in tooling_mobile_android_sdk_packages.stdout
+    fail_msg: >-
+      The configured Android 14 Google Play x86_64 image required by rootAVD
+      is not available from the stable Android SDK channel.
+
+- name: Install the rooted AVD Android platform
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - "platforms;android-{{ tooling_mobile_android_rooted_api_level }}"
+    creates: >-
+      {{ tooling_mobile_android_sdk_root
+         ~ '/platforms/android-' ~ (tooling_mobile_android_rooted_api_level | string)
+         ~ '/android.jar' }}
+
+- name: Install the rootAVD-compatible Android system image
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - "{{ tooling_mobile_android_rooted_system_image }}"
+    creates: "{{ tooling_mobile_android_rooted_system_image_dir }}/package.xml"
+
+- name: Read the current rootAVD revision
+  ansible.builtin.uri:
+    url: "{{ tooling_mobile_rootavd_branch_api }}"
+    return_content: true
+  register: tooling_mobile_rootavd_branch
+  changed_when: false
+
+- name: Validate the current rootAVD revision
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_rootavd_branch.json.commit.id is match('^[0-9a-f]{40}$')
+    fail_msg: GitLab did not return a recognizable rootAVD master revision.
+
+- name: Record the current rootAVD revision
+  ansible.builtin.set_fact:
+    tooling_mobile_rootavd_commit: "{{ tooling_mobile_rootavd_branch.json.commit.id }}"
+    tooling_mobile_rootavd_install_dir: >-
+      /opt/rootAVD-{{ tooling_mobile_rootavd_branch.json.commit.id }}
+
+- name: Install the current rootAVD revision
+  ansible.builtin.git:
+    repo: "{{ tooling_mobile_rootavd_repository }}"
+    dest: "{{ tooling_mobile_rootavd_install_dir }}"
+    version: "{{ tooling_mobile_rootavd_commit }}"
+    depth: 1
+    force: false
+
+- name: Create the stable rootAVD path
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_rootavd_install_dir }}"
+    dest: /opt/rootAVD
+    state: link
+    force: true
+
+- name: Install stable rootAVD commands
+  ansible.builtin.copy:
+    src: rootavd
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - rootAVD
+    - rootavd
+
+- name: Make rootAVD state manageable by the desktop user
+  ansible.builtin.file:
+    path: "{{ tooling_mobile_rootavd_install_dir }}"
+    state: directory
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
+    recurse: true
+
+- name: Make the rooted system image manageable by the desktop user
+  ansible.builtin.file:
+    path: "{{ tooling_mobile_android_rooted_system_image_dir }}"
+    state: directory
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
+    recurse: true
+
+- name: Create the rooted Android virtual device
+  become: true
+  become_user: "{{ tooling_mobile_android_user }}"
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/avdmanager
+      - create
+      - avd
+      - --force
+      - --name
+      - "{{ tooling_mobile_android_rooted_avd_name }}"
+      - --package
+      - "{{ tooling_mobile_android_rooted_system_image }}"
+      - --device
+      - "{{ tooling_mobile_android_avd_device }}"
+    stdin: "no\n"
+    creates: >-
+      {{ tooling_mobile_android_home
+         ~ '/.android/avd/' ~ tooling_mobile_android_rooted_avd_name
+         ~ '.avd/config.ini' }}
+  environment:
+    ANDROID_HOME: "{{ tooling_mobile_android_sdk_root }}"
+    ANDROID_SDK_ROOT: "{{ tooling_mobile_android_sdk_root }}"
+    HOME: "{{ tooling_mobile_android_home }}"
+
+- name: Inspect the rooted AVD provisioning marker
+  ansible.builtin.stat:
+    path: >-
+      {{ tooling_mobile_android_home
+         ~ '/.android/avd/' ~ tooling_mobile_android_rooted_avd_name
+         ~ '.avd/.deburner-rootavd' }}
+  register: tooling_mobile_rootavd_marker
+
+- name: Patch and validate the rooted Android virtual device
+  when: not tooling_mobile_rootavd_marker.stat.exists
+  block:
+    - name: Start the rooted AVD for rootAVD
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/emulator
+          - -avd
+          - "{{ tooling_mobile_android_rooted_avd_name }}"
+          - -port
+          - "{{ tooling_mobile_android_emulator_port }}"
+          - -no-window
+          - -no-audio
+          - -no-boot-anim
+          - -no-snapshot
+          - -gpu
+          - swiftshader_indirect
+      environment: &tooling_mobile_rootavd_environment
+        ANDROID_HOME: "{{ tooling_mobile_android_sdk_root }}"
+        ANDROID_SDK_ROOT: "{{ tooling_mobile_android_sdk_root }}"
+        ANDROID_SERIAL: "emulator-{{ tooling_mobile_android_emulator_port }}"
+        HOME: "{{ tooling_mobile_android_home }}"
+      async: "{{ tooling_mobile_rootavd_patch_timeout }}"
+      poll: 0
+      changed_when: true
+
+    - name: Wait for the rooted AVD to finish booting
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - shell
+          - getprop
+          - sys.boot_completed
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_boot
+      changed_when: false
+      failed_when: false
+      until: tooling_mobile_rootavd_boot.stdout | trim == '1'
+      retries: "{{ tooling_mobile_android_boot_retries }}"
+      delay: 5
+
+    - name: Patch the rooted AVD system image with rootAVD
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/rootavd
+          - "{{ tooling_mobile_rootavd_ramdisk_relative }}"
+        chdir: /opt/rootAVD
+        stdin: "1\n"
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_patch
+      async: "{{ tooling_mobile_rootavd_patch_timeout }}"
+      poll: 10
+      changed_when: true
+
+    - name: Wait for rootAVD to stop the emulator
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - get-state
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_stopped
+      changed_when: false
+      failed_when: false
+      until: tooling_mobile_rootavd_stopped.rc != 0
+      retries: 60
+      delay: 2
+
+    - name: Cold-boot the patched rooted AVD
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/emulator
+          - -avd
+          - "{{ tooling_mobile_android_rooted_avd_name }}"
+          - -port
+          - "{{ tooling_mobile_android_emulator_port }}"
+          - -no-window
+          - -no-audio
+          - -no-boot-anim
+          - -no-snapshot
+          - -gpu
+          - swiftshader_indirect
+      environment: *tooling_mobile_rootavd_environment
+      async: "{{ tooling_mobile_rootavd_patch_timeout }}"
+      poll: 0
+      changed_when: true
+
+    - name: Wait for the patched rooted AVD to finish booting
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - shell
+          - getprop
+          - sys.boot_completed
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_cold_boot
+      changed_when: false
+      failed_when: false
+      until: tooling_mobile_rootavd_cold_boot.stdout | trim == '1'
+      retries: "{{ tooling_mobile_android_boot_retries }}"
+      delay: 5
+
+    - name: Check the Magisk application
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - shell
+          - pm
+          - path
+          - com.topjohnwu.magisk
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_magisk_app
+      changed_when: false
+
+    - name: Check the Magisk su command
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - shell
+          - su
+          - -v
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_su
+      changed_when: false
+
+    - name: Inspect the stock and patched Android ramdisks
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+      loop:
+        - "{{ tooling_mobile_android_rooted_system_image_dir }}/ramdisk.img"
+        - "{{ tooling_mobile_android_rooted_system_image_dir }}/ramdisk.img.backup"
+      register: tooling_mobile_rootavd_ramdisks
+
+    - name: Require a bootable Magisk-patched Android ramdisk
+      ansible.builtin.assert:
+        that:
+          - tooling_mobile_rootavd_magisk_app.stdout is match('^package:')
+          - tooling_mobile_rootavd_su.stdout is search('(?i)magisk')
+          - tooling_mobile_rootavd_ramdisks.results[0].stat.exists
+          - tooling_mobile_rootavd_ramdisks.results[1].stat.exists
+          - tooling_mobile_rootavd_ramdisks.results[0].stat.checksum != tooling_mobile_rootavd_ramdisks.results[1].stat.checksum
+        fail_msg: rootAVD did not produce a bootable Magisk-patched Android image.
+
+    - name: Mark the rooted AVD as provisioned
+      ansible.builtin.copy:
+        content: |
+          rootavd_commit={{ tooling_mobile_rootavd_commit }}
+          system_image={{ tooling_mobile_android_rooted_system_image }}
+          magisk_su={{ tooling_mobile_rootavd_su.stdout | trim }}
+        dest: >-
+          {{ tooling_mobile_android_home
+             ~ '/.android/avd/' ~ tooling_mobile_android_rooted_avd_name
+             ~ '.avd/.deburner-rootavd' }}
+        owner: "{{ tooling_mobile_android_user }}"
+        group: "{{ tooling_mobile_android_group }}"
+        mode: '0644'
+
+  always:
+    - name: Stop the rooted AVD after provisioning
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - emu
+          - kill
+      environment: *tooling_mobile_rootavd_environment
+      changed_when: false
+      failed_when: false

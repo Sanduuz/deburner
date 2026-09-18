@@ -1,0 +1,94 @@
+---
+- name: Read the latest stable JADX release
+  ansible.builtin.uri:
+    url: "{{ tooling_mobile_jadx_release_api }}"
+    headers: "{{ tooling_mobile_github_api_headers }}"
+    return_content: true
+  register: tooling_mobile_jadx_release
+  changed_when: false
+
+- name: Select the JADX release archive
+  ansible.builtin.set_fact:
+    tooling_mobile_jadx_assets: >-
+      {{ tooling_mobile_jadx_release.json.assets
+         | selectattr('name', 'match', '^jadx-[0-9]+(?:\.[0-9]+)+\.zip$')
+         | list }}
+
+- name: Validate the latest JADX release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_jadx_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_mobile_jadx_assets | length == 1
+      - tooling_mobile_jadx_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest JADX release does not contain one checksum-described platform archive.
+
+- name: Define the current JADX artifact
+  ansible.builtin.set_fact:
+    tooling_mobile_jadx_asset: "{{ tooling_mobile_jadx_assets[0] }}"
+    tooling_mobile_jadx_version: "{{ tooling_mobile_jadx_release.json.tag_name | regex_replace('^v', '') }}"
+    tooling_mobile_jadx_install_dir: >-
+      /opt/jadx-{{ tooling_mobile_jadx_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Check whether the current JADX release is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_mobile_jadx_install_dir }}/bin/jadx"
+  register: tooling_mobile_jadx_executable
+
+- name: Install the current JADX release
+  when: not tooling_mobile_jadx_executable.stat.exists
+  block:
+    - name: Create the JADX version directory
+      ansible.builtin.file:
+        path: "{{ tooling_mobile_jadx_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download JADX
+      ansible.builtin.get_url:
+        url: "{{ tooling_mobile_jadx_asset.browser_download_url }}"
+        dest: "/var/cache/deburner/{{ tooling_mobile_jadx_asset.name }}"
+        checksum: "{{ tooling_mobile_jadx_asset.digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 60
+
+    - name: Extract JADX under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_mobile_jadx_asset.name }}"
+        dest: "{{ tooling_mobile_jadx_install_dir }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded JADX archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_mobile_jadx_asset.name }}"
+        state: absent
+
+- name: Create the stable JADX path
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_jadx_install_dir }}"
+    dest: /opt/jadx
+    state: link
+    force: true
+
+- name: Install stable JADX commands
+  ansible.builtin.file:
+    src: "/opt/jadx/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - jadx
+    - jadx-gui
+
+- name: Install the JADX desktop launcher
+  ansible.builtin.copy:
+    src: jadx.desktop
+    dest: /usr/local/share/applications/jadx.desktop
+    owner: root
+    group: root
+    mode: '0644'

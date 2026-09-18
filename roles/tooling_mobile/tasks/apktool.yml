@@ -1,0 +1,62 @@
+---
+- name: Read the latest stable Apktool release
+  ansible.builtin.uri:
+    url: "{{ tooling_mobile_apktool_release_api }}"
+    headers: "{{ tooling_mobile_github_api_headers }}"
+    return_content: true
+  register: tooling_mobile_apktool_release
+  changed_when: false
+
+- name: Select the Apktool release JAR
+  ansible.builtin.set_fact:
+    tooling_mobile_apktool_assets: >-
+      {{ tooling_mobile_apktool_release.json.assets
+         | selectattr('name', 'match', '^apktool_[0-9]+(?:\.[0-9]+)+\.jar$')
+         | list }}
+
+- name: Validate the latest Apktool release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_apktool_release.json.tag_name is match('^v[0-9]+(?:\.[0-9]+)+$')
+      - tooling_mobile_apktool_assets | length == 1
+      - tooling_mobile_apktool_assets[0].digest | default('') is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: The latest Apktool release does not contain one checksum-described JAR.
+
+- name: Define the current Apktool artifact
+  ansible.builtin.set_fact:
+    tooling_mobile_apktool_asset: "{{ tooling_mobile_apktool_assets[0] }}"
+    tooling_mobile_apktool_install_dir: >-
+      /opt/apktool-{{ tooling_mobile_apktool_release.json.tag_name | regex_replace('^v', '') }}
+
+- name: Create the Apktool version directory
+  ansible.builtin.file:
+    path: "{{ tooling_mobile_apktool_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the current Apktool JAR
+  ansible.builtin.get_url:
+    url: "{{ tooling_mobile_apktool_asset.browser_download_url }}"
+    dest: "{{ tooling_mobile_apktool_install_dir }}/apktool.jar"
+    checksum: "{{ tooling_mobile_apktool_asset.digest }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Create the stable Apktool path
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_apktool_install_dir }}"
+    dest: /opt/apktool
+    state: link
+    force: true
+
+- name: Install the Apktool command
+  ansible.builtin.copy:
+    src: apktool
+    dest: /usr/local/bin/apktool
+    owner: root
+    group: root
+    mode: '0755'

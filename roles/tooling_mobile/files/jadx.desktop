@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=JADX
+Comment=Android Dex and APK decompiler
+Exec=/usr/local/bin/jadx-gui
+Icon=applications-development
+Terminal=false
+Categories=Development;Utility;

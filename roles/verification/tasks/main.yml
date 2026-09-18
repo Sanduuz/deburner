@@ -58,6 +58,24 @@
          | default(verification_offline_mirror_defaults.offline_mirror_root) }}
     verification_bloodhound_enabled: >-
       {{ tooling_bloodhound_enabled | default(false) }}
+    verification_android_studio_enabled: >-
+      {{ tooling_mobile_android_studio_enabled
+         | default(verification_mobile_defaults.tooling_mobile_android_studio_enabled) }}
+    verification_android_avd_name: >-
+      {{ tooling_mobile_android_avd_name
+         | default(verification_mobile_defaults.tooling_mobile_android_avd_name) }}
+    verification_android_rooted_avd_name: >-
+      {{ tooling_mobile_android_rooted_avd_name
+         | default(verification_mobile_defaults.tooling_mobile_android_rooted_avd_name) }}
+    verification_android_rooted_api_level: >-
+      {{ tooling_mobile_android_rooted_api_level
+         | default(verification_mobile_defaults.tooling_mobile_android_rooted_api_level) }}
+    verification_android_rooted_image_flavor: >-
+      {{ tooling_mobile_android_rooted_system_image_flavor
+         | default(verification_mobile_defaults.tooling_mobile_android_rooted_system_image_flavor) }}
+    verification_android_image_architecture: >-
+      {{ tooling_mobile_android_system_image_architecture
+         | default(verification_mobile_defaults.tooling_mobile_android_system_image_architecture) }}
 
 - name: Read required service states
   ansible.builtin.command:
@@ -451,6 +469,50 @@
     label: "{{ item.item }}"
   when:
     - verification_bloodhound_enabled | bool
+    - not item.skipped | default(false)
+
+- name: Inspect the optional Android Studio installation
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/profile.d/deburner-android-sdk.sh
+    - /opt/android-studio/bin/studio
+    - /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager
+    - /opt/android-sdk/emulator/emulator
+    - /opt/rootAVD/rootAVD.sh
+    - /usr/local/bin/android-studio
+    - /usr/local/bin/rootavd
+    - "{{ verification_home }}/.android/avd/{{ verification_android_avd_name }}.avd/config.ini"
+    - >-
+      {{ verification_home ~ '/.android/avd/'
+         ~ verification_android_rooted_avd_name ~ '.avd/config.ini' }}
+    - >-
+      {{ verification_home ~ '/.android/avd/'
+         ~ verification_android_rooted_avd_name ~ '.avd/.deburner-rootavd' }}
+    - >-
+      {{ '/opt/android-sdk/system-images/android-'
+         ~ (verification_android_rooted_api_level | string) ~ '/'
+         ~ verification_android_rooted_image_flavor ~ '/'
+         ~ verification_android_image_architecture ~ '/ramdisk.img' }}
+    - >-
+      {{ '/opt/android-sdk/system-images/android-'
+         ~ (verification_android_rooted_api_level | string) ~ '/'
+         ~ verification_android_rooted_image_flavor ~ '/'
+         ~ verification_android_image_architecture ~ '/ramdisk.img.backup' }}
+  register: verification_android_studio_files
+  when: verification_android_studio_enabled | bool
+
+- name: Require optional Android Studio installation files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg or item.stat.islnk
+    fail_msg: "Android Studio profile file is missing: {{ item.item }}"
+  loop: "{{ verification_android_studio_files.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - verification_android_studio_enabled | bool
     - not item.skipped | default(false)
 
 - name: Read staged container image repositories

@@ -1,0 +1,378 @@
+---
+- name: Resolve the desktop user for the Android AVD
+  ansible.builtin.command:
+    argv:
+      - getent
+      - passwd
+      - >-
+        {{ (customization_user | default(''))
+           if (customization_user | default('') | length > 0)
+           else '1000' }}
+  register: tooling_mobile_android_passwd
+  changed_when: false
+  failed_when: false
+
+- name: Validate the Android AVD user
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_android_passwd.rc == 0
+      - tooling_mobile_android_passwd.stdout_lines | length == 1
+      - tooling_mobile_android_passwd.stdout.split(':') | length == 7
+      - tooling_mobile_android_passwd.stdout.split(':')[0] != 'root'
+      - tooling_mobile_android_passwd.stdout.split(':')[2] | int >= 1000
+      - tooling_mobile_android_passwd.stdout.split(':')[5] is match('^/home/[^/]+$')
+    fail_msg: >-
+      The desktop account for the Android AVD could not be resolved.
+      Set customization_user in local.yml to the intended account.
+
+- name: Record the Android AVD user
+  ansible.builtin.set_fact:
+    tooling_mobile_android_user: "{{ tooling_mobile_android_passwd.stdout.split(':')[0] }}"
+    tooling_mobile_android_group: "{{ tooling_mobile_android_passwd.stdout.split(':')[3] }}"
+    tooling_mobile_android_home: "{{ tooling_mobile_android_passwd.stdout.split(':')[5] }}"
+
+- name: Install Android emulator host dependencies
+  ansible.builtin.apt:
+    name:
+      - libpulse0
+      - qemu-system-x86
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure the KVM access group exists
+  ansible.builtin.group:
+    name: kvm
+    state: present
+
+- name: Grant the desktop user KVM access
+  ansible.builtin.user:
+    name: "{{ tooling_mobile_android_user }}"
+    groups:
+      - kvm
+    append: true
+
+- name: Read the current official Android downloads
+  ansible.builtin.uri:
+    url: "{{ tooling_mobile_android_download_page }}"
+    return_content: true
+  register: tooling_mobile_android_downloads
+  changed_when: false
+
+- name: Extract current Android Studio and command-line tool metadata
+  ansible.builtin.set_fact:
+    tooling_mobile_android_studio_urls: >-
+      {{ tooling_mobile_android_downloads.content
+         | regex_findall('href="(https://[^" ]+/android/studio/ide-zips/[^" ]+/android-studio-[^" ]+-linux\.tar\.gz)"') }}
+    tooling_mobile_android_studio_metadata: >-
+      {{ tooling_mobile_android_downloads.content
+         | regex_findall('(?s)>(android-studio-[^<]+-linux\.tar\.gz)</button>.*?<td>[^<]+</td>\s*<td>([0-9a-f]{64})</td>') }}
+    tooling_mobile_android_cli_urls: >-
+      {{ tooling_mobile_android_downloads.content
+         | regex_findall('href="(https://dl\.google\.com/android/repository/commandlinetools-linux-[0-9]+_latest\.zip)"') }}
+    tooling_mobile_android_cli_metadata: >-
+      {{ tooling_mobile_android_downloads.content
+         | regex_findall('(?s)>(commandlinetools-linux-([0-9]+)_latest\.zip)</button>.*?<td>[^<]+</td>\s*<td>([0-9a-f]{64})</td>') }}
+
+- name: Validate current official Android download metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_android_studio_urls | length == 1
+      - tooling_mobile_android_studio_metadata | length == 1
+      - tooling_mobile_android_cli_urls | length == 1
+      - tooling_mobile_android_cli_metadata | length == 1
+      - >-
+        tooling_mobile_android_studio_urls[0]
+        is match('^https://(?:edgedl\.me\.gvt1\.com|redirector\.gvt1\.com)/android/studio/ide-zips/[0-9.]+/android-studio-[a-z0-9._-]+-linux\.tar\.gz$')
+      - tooling_mobile_android_studio_urls[0] | urlsplit('path') | basename == tooling_mobile_android_studio_metadata[0][0]
+      - tooling_mobile_android_studio_metadata[0][1] is match('^[0-9a-f]{64}$')
+      - tooling_mobile_android_cli_urls[0] | urlsplit('path') | basename == tooling_mobile_android_cli_metadata[0][0]
+      - tooling_mobile_android_cli_metadata[0][1] is match('^[0-9]+$')
+      - tooling_mobile_android_cli_metadata[0][2] is match('^[0-9a-f]{64}$')
+    fail_msg: The Android download page did not contain one recognizable checksum-described Linux release.
+
+- name: Define current Android artifacts
+  ansible.builtin.set_fact:
+    tooling_mobile_android_studio_url: "{{ tooling_mobile_android_studio_urls[0] }}"
+    tooling_mobile_android_studio_archive: "{{ tooling_mobile_android_studio_metadata[0][0] }}"
+    tooling_mobile_android_studio_checksum: "sha256:{{ tooling_mobile_android_studio_metadata[0][1] }}"
+    tooling_mobile_android_studio_release: >-
+      {{ (tooling_mobile_android_studio_urls[0] | urlsplit('path')).split('/')[-2] }}
+    tooling_mobile_android_cli_url: "{{ tooling_mobile_android_cli_urls[0] }}"
+    tooling_mobile_android_cli_archive: "{{ tooling_mobile_android_cli_metadata[0][0] }}"
+    tooling_mobile_android_cli_revision: "{{ tooling_mobile_android_cli_metadata[0][1] }}"
+    tooling_mobile_android_cli_checksum: "sha256:{{ tooling_mobile_android_cli_metadata[0][2] }}"
+
+- name: Define current Android installation paths
+  ansible.builtin.set_fact:
+    tooling_mobile_android_studio_install_root: >-
+      /opt/android-studio-{{ tooling_mobile_android_studio_release }}
+    tooling_mobile_android_cli_install_root: >-
+      {{ tooling_mobile_android_sdk_root }}/cmdline-tools/{{ tooling_mobile_android_cli_revision }}
+
+- name: Check whether current Android Studio is installed
+  ansible.builtin.stat:
+    path: "{{ tooling_mobile_android_studio_install_root }}/android-studio/bin/studio"
+  register: tooling_mobile_android_studio_executable
+
+- name: Install current Android Studio
+  when: not tooling_mobile_android_studio_executable.stat.exists
+  block:
+    - name: Create the Android Studio version directory
+      ansible.builtin.file:
+        path: "{{ tooling_mobile_android_studio_install_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download Android Studio
+      ansible.builtin.get_url:
+        url: "{{ tooling_mobile_android_studio_url }}"
+        dest: "/var/cache/deburner/{{ tooling_mobile_android_studio_archive }}"
+        checksum: "{{ tooling_mobile_android_studio_checksum }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 120
+
+    - name: Extract Android Studio under opt
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_mobile_android_studio_archive }}"
+        dest: "{{ tooling_mobile_android_studio_install_root }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded Android Studio archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_mobile_android_studio_archive }}"
+        state: absent
+
+- name: Create the stable Android Studio path
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_android_studio_install_root }}/android-studio"
+    dest: /opt/android-studio
+    state: link
+    force: true
+
+- name: Create the Android SDK directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ tooling_mobile_android_sdk_root }}"
+    - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools"
+    - "{{ tooling_mobile_android_cli_install_root }}"
+
+- name: Check whether current Android command-line tools are installed
+  ansible.builtin.stat:
+    path: "{{ tooling_mobile_android_cli_install_root }}/cmdline-tools/bin/sdkmanager"
+  register: tooling_mobile_android_cli_executable
+
+- name: Install current Android command-line tools
+  when: not tooling_mobile_android_cli_executable.stat.exists
+  block:
+    - name: Download Android command-line tools
+      ansible.builtin.get_url:
+        url: "{{ tooling_mobile_android_cli_url }}"
+        dest: "/var/cache/deburner/{{ tooling_mobile_android_cli_archive }}"
+        checksum: "{{ tooling_mobile_android_cli_checksum }}"
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 120
+
+    - name: Extract Android command-line tools
+      ansible.builtin.unarchive:
+        src: "/var/cache/deburner/{{ tooling_mobile_android_cli_archive }}"
+        dest: "{{ tooling_mobile_android_cli_install_root }}"
+        remote_src: true
+        owner: root
+        group: root
+
+    - name: Remove the downloaded Android command-line tools archive
+      ansible.builtin.file:
+        path: "/var/cache/deburner/{{ tooling_mobile_android_cli_archive }}"
+        state: absent
+
+- name: Create the current Android command-line tools path
+  ansible.builtin.file:
+    src: "{{ tooling_mobile_android_cli_install_root }}/cmdline-tools"
+    dest: "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest"
+    state: link
+    force: true
+
+- name: Inspect the Android SDK license state
+  ansible.builtin.stat:
+    path: "{{ tooling_mobile_android_sdk_root }}/licenses"
+  register: tooling_mobile_android_license_directory
+
+- name: Accept the Android SDK licenses
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - --licenses
+    stdin: "{{ 'y\n' * 100 }}"
+  register: tooling_mobile_android_license_result
+  changed_when: not tooling_mobile_android_license_directory.stat.exists
+
+- name: Read available stable Android SDK packages
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - --list
+      - --channel=0
+  register: tooling_mobile_android_sdk_packages
+  changed_when: false
+
+- name: Select available stable Android API levels
+  ansible.builtin.set_fact:
+    tooling_mobile_android_api_levels: >-
+      {{ tooling_mobile_android_sdk_packages.stdout
+         | regex_findall('system-images;android-([0-9]+);'
+                         + tooling_mobile_android_system_image_flavor
+                         + ';' + tooling_mobile_android_system_image_architecture)
+         | map('int')
+         | list }}
+
+- name: Require a stable Android emulator image
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_android_api_levels | length > 0
+    fail_msg: No stable Google APIs x86_64 Android system image was available.
+
+- name: Record the newest stable Android API level
+  ansible.builtin.set_fact:
+    tooling_mobile_android_api_level: "{{ tooling_mobile_android_api_levels | max }}"
+    tooling_mobile_android_system_image: >-
+      {{ 'system-images;android-' ~ (tooling_mobile_android_api_levels | max | string)
+         ~ ';' ~ tooling_mobile_android_system_image_flavor
+         ~ ';' ~ tooling_mobile_android_system_image_architecture }}
+
+- name: Install Android SDK platform tools
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - platform-tools
+    creates: "{{ tooling_mobile_android_sdk_root }}/platform-tools/adb"
+
+- name: Install the Android emulator
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - emulator
+    creates: "{{ tooling_mobile_android_sdk_root }}/emulator/emulator"
+
+- name: Install the selected Android platform
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - "platforms;android-{{ tooling_mobile_android_api_level }}"
+    creates: "{{ tooling_mobile_android_sdk_root }}/platforms/android-{{ tooling_mobile_android_api_level }}/android.jar"
+
+- name: Install the selected Android system image
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - "{{ tooling_mobile_android_system_image }}"
+    creates: >-
+      {{ tooling_mobile_android_sdk_root
+         ~ '/system-images/android-' ~ tooling_mobile_android_api_level
+         ~ '/' ~ tooling_mobile_android_system_image_flavor
+         ~ '/' ~ tooling_mobile_android_system_image_architecture
+         ~ '/package.xml' }}
+
+- name: Install stable optional Android commands
+  ansible.builtin.file:
+    src: "{{ item.source }}"
+    dest: "/usr/local/bin/{{ item.destination }}"
+    state: link
+    force: true
+  loop:
+    - source: "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/avdmanager"
+      destination: avdmanager
+    - source: "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      destination: sdkmanager
+    - source: "{{ tooling_mobile_android_sdk_root }}/emulator/emulator"
+      destination: emulator
+    - source: "{{ tooling_mobile_android_sdk_root }}/platform-tools/adb"
+      destination: adb
+    - source: "{{ tooling_mobile_android_sdk_root }}/platform-tools/fastboot"
+      destination: fastboot
+  loop_control:
+    label: "{{ item.destination }}"
+
+- name: Install the Android Studio command
+  ansible.builtin.copy:
+    src: android-studio
+    dest: /usr/local/bin/android-studio
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Publish the Android SDK environment for login sessions
+  ansible.builtin.copy:
+    src: android-sdk.sh
+    dest: /etc/profile.d/deburner-android-sdk.sh
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create the Android user state directory
+  ansible.builtin.file:
+    path: "{{ tooling_mobile_android_home }}/.android"
+    state: directory
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
+    mode: '0700'
+
+- name: Create the deburner Android virtual device
+  become: true
+  become_user: "{{ tooling_mobile_android_user }}"
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/avdmanager
+      - create
+      - avd
+      - --force
+      - --name
+      - "{{ tooling_mobile_android_avd_name }}"
+      - --package
+      - "{{ tooling_mobile_android_system_image }}"
+      - --device
+      - "{{ tooling_mobile_android_avd_device }}"
+    stdin: "no\n"
+    creates: "{{ tooling_mobile_android_home }}/.android/avd/{{ tooling_mobile_android_avd_name }}.avd/config.ini"
+  environment:
+    ANDROID_HOME: "{{ tooling_mobile_android_sdk_root }}"
+    ANDROID_SDK_ROOT: "{{ tooling_mobile_android_sdk_root }}"
+    HOME: "{{ tooling_mobile_android_home }}"
+
+- name: Install and prepare the rooted Android virtual device
+  ansible.builtin.include_tasks: rootavd.yml
+
+- name: Make the complete Android SDK manageable by the desktop user
+  ansible.builtin.file:
+    path: "{{ tooling_mobile_android_sdk_root }}"
+    state: directory
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
+    recurse: true
+
+- name: Install the Android Studio desktop launcher
+  ansible.builtin.copy:
+    src: android-studio.desktop
+    dest: /usr/local/share/applications/android-studio.desktop
+    owner: root
+    group: root
+    mode: '0644'

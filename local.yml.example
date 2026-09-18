@@ -30,6 +30,7 @@ docker_group_users: []
 # tooling_desktop_packages: []
 # tooling_exploitation_packages: []
 # tooling_reversing_packages: []
+# tooling_mobile_packages: []
 # tooling_web_packages: []
 # tooling_wordlists_packages: []
 # tooling_c2_packages: []
@@ -45,6 +46,16 @@ tooling_web_burp_max_heap: 4g
 # Optional BloodHound CE staging can download several large container images.
 tooling_bloodhound_enabled: false
 tooling_bloodhound_install_timeout: 3600
+
+# Optional Android Studio profile. This downloads the IDE, SDK, emulator, the
+# newest stable Google APIs x86_64 image, and a separate Android 14 Google Play
+# image patched with Magisk by rootAVD. It creates stopped AVDs named "deburner"
+# and "deburner-rooted" for the desktop user. Enabling it can consume tens of
+# gigabytes and briefly boots the rooted AVD headlessly while provisioning it.
+# Setting the license flag confirms that you have reviewed and accepted the
+# Android SDK license shown at https://developer.android.com/studio/terms.
+tooling_mobile_android_studio_enabled: false
+tooling_mobile_android_licenses_accepted: false
 
 # User and desktop customization. An empty value selects the account with UID
 # 1000. Set the account name explicitly if the desktop user has another UID.

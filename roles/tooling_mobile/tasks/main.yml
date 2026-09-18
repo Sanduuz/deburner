@@ -1,0 +1,101 @@
+---
+- name: Validate mobile tooling configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_mobile_packages | type_debug == 'list'
+      - tooling_mobile_packages | length > 0
+      - tooling_mobile_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_mobile_packages | length
+      - tooling_mobile_jadx_release_api == 'https://api.github.com/repos/skylot/jadx/releases/latest'
+      - tooling_mobile_apktool_release_api == 'https://api.github.com/repos/iBotPeaches/Apktool/releases/latest'
+      - tooling_mobile_frida_pypi_api == 'https://pypi.org/pypi/frida-tools/json'
+      - tooling_mobile_objection_pypi_api == 'https://pypi.org/pypi/objection/json'
+      - tooling_mobile_android_studio_enabled | type_debug == 'bool'
+      - tooling_mobile_android_licenses_accepted | type_debug == 'bool'
+      - tooling_mobile_android_download_page == 'https://developer.android.com/studio'
+      - tooling_mobile_android_sdk_root == '/opt/android-sdk'
+      - tooling_mobile_android_avd_name is match('^[A-Za-z0-9._-]+$')
+      - tooling_mobile_android_avd_device is match('^[A-Za-z0-9._-]+$')
+      - tooling_mobile_android_system_image_flavor is match('^[a-z0-9_]+$')
+      - tooling_mobile_android_system_image_architecture == 'x86_64'
+      - tooling_mobile_rootavd_repository == 'https://gitlab.com/newbit/rootAVD.git'
+      - tooling_mobile_rootavd_branch_api is match('^https://gitlab\.com/api/v4/projects/')
+      - tooling_mobile_android_rooted_api_level | int >= 29
+      - tooling_mobile_android_rooted_api_level | int <= 34
+      - tooling_mobile_android_rooted_system_image_flavor == 'google_apis_playstore'
+      - tooling_mobile_android_rooted_avd_name is match('^[A-Za-z0-9._-]+$')
+      - tooling_mobile_android_rooted_avd_name != tooling_mobile_android_avd_name
+      - tooling_mobile_android_emulator_port | int >= 5554
+      - tooling_mobile_android_emulator_port | int <= 5682
+      - tooling_mobile_android_emulator_port | int % 2 == 0
+      - tooling_mobile_android_boot_retries | int >= 12
+      - tooling_mobile_rootavd_patch_timeout | int >= 300
+    fail_msg: Review the mobile tooling variables; one or more values are invalid.
+
+- name: Require explicit Android license acceptance for the optional profile
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_android_licenses_accepted | bool
+    fail_msg: >-
+      The optional Android Studio profile downloads Google SDK components.
+      Review the Android SDK license, then set tooling_mobile_android_licenses_accepted: true.
+  when: tooling_mobile_android_studio_enabled | bool
+
+- name: Require uv from the analysis tooling role
+  ansible.builtin.stat:
+    path: /usr/local/bin/uv
+  register: tooling_mobile_uv
+
+- name: Validate the mobile Python tooling dependency
+  ansible.builtin.assert:
+    that:
+      - tooling_mobile_uv.stat.exists
+      - tooling_mobile_uv.stat.isreg or tooling_mobile_uv.stat.islnk
+      - tooling_mobile_uv.stat.executable
+    fail_msg: Run tooling-analysis.yml before tooling-mobile.yml so uv is available.
+
+- name: Install Android analysis packages
+  ansible.builtin.apt:
+    name: "{{ tooling_mobile_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the mobile tooling artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the system desktop launcher directory
+  ansible.builtin.file:
+    path: /usr/local/share/applications
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install current JADX
+  ansible.builtin.include_tasks: jadx.yml
+
+- name: Install current Apktool
+  ansible.builtin.include_tasks: apktool.yml
+
+- name: Install current Python mobile tooling
+  ansible.builtin.include_tasks: python-tools.yml
+
+- name: Explain that the optional Android Studio profile is disabled
+  ansible.builtin.debug:
+    msg: >-
+      Android Studio, the SDK emulator and the deburner AVDs are disabled.
+      Set tooling_mobile_android_studio_enabled: true and accept the Android
+      licenses in local.yml to include them.
+  when: not tooling_mobile_android_studio_enabled | bool
+
+- name: Install Android Studio and create Android virtual devices
+  ansible.builtin.include_tasks: android-studio.yml
+  when: tooling_mobile_android_studio_enabled | bool
