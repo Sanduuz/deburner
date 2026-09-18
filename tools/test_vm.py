@@ -533,7 +533,7 @@ def create_cloud_init_seed(config: Config) -> None:
     """Create a NoCloud seed that enables the private guest-agent channel."""
     config.user_data_path.write_text(
         "#cloud-config\n"
-        f"hostname: {config.name}\n"
+        "hostname: deburner\n"
         "manage_etc_hosts: true\n"
         "package_update: true\n"
         "packages:\n"
@@ -550,7 +550,7 @@ def create_cloud_init_seed(config: Config) -> None:
         "  - [cp, -a, /mnt/deburner-source/., /opt/deburner/]\n"
         "  - [systemctl, enable, --now, qemu-guest-agent.service]\n"
     )
-    config.metadata_path.write_text(f"instance-id: {config.name}\nlocal-hostname: {config.name}\n")
+    config.metadata_path.write_text(f"instance-id: {config.name}\nlocal-hostname: deburner\n")
     run(
         [
             "xorriso",

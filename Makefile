@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := provision
+
 export ANSIBLE_GALAXY_CACHE_DIR ?= $(CURDIR)/.cache/ansible/galaxy
 export ANSIBLE_LOCAL_TEMP ?= $(CURDIR)/.cache/ansible/local
 export UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
@@ -27,11 +29,14 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	--vcpus "$(TEST_VM_VCPUS)" \
 	--disk-gib "$(TEST_VM_DISK_GIB)"
 
-.PHONY: setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
+.PHONY: provision setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
 	test-bloodhound \
 	test-prerequisites test-image test-image-status test-image-purge test-create test-start test-stop \
 	test-destroy test-status test-console test-wait test-provision test-verify test-reboot \
 	test-idempotence test-refresh test-clean
+
+provision:
+	ansible-playbook deburner.yml --ask-become-pass
 
 setup:
 	@command -v uv >/dev/null || { echo "uv is required: https://docs.astral.sh/uv/getting-started/installation/" >&2; exit 1; }

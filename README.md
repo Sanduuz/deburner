@@ -31,12 +31,12 @@ machine while it still has Internet access. If your user cannot run `sudo`, use
 
 ```sh
 sudo apt update
-sudo apt install sudo git ansible
+sudo apt install sudo git ansible make
 git clone https://github.com/sanduuz/deburner.git
 cd deburner
 cp local.yml.example local.yml
 # Edit local.yml for this event, then:
-ansible-playbook deburner.yml --ask-become-pass
+make
 sudo reboot
 ```
 
@@ -44,7 +44,10 @@ The canonical repository is
 [github.com/sanduuz/deburner](https://github.com/sanduuz/deburner). No third-party
 Ansible collections are required.
 
-Run Ansible as your normal user; `--ask-become-pass` supplies the sudo password.
+The bare `make` command runs
+`ansible-playbook deburner.yml --ask-become-pass`. You can invoke that Ansible
+command directly if preferred. Run it as your normal user;
+`--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, pivoting, analysis,
 steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
@@ -61,8 +64,14 @@ repository before running it with root privileges. Keep `local.yml` private; it
 is ignored by Git. Each playbook loads `local.yml` automatically, falling back to
 `local.yml.example` when it is absent. Nothing commits or pushes changes for you.
 
-The preflight first requires more than 400 GB of free space on the filesystem
-containing `/srv`, the planned offline-mirror location. It then requests signed
+The preflight first requires the machine's short host name to be exactly
+`deburner`. Set that host name during Debian installation or change it before
+provisioning. This fixed guard reduces the chance of applying the burner
+configuration to another machine accidentally. Individual category playbooks
+do not run the guard and remain available for deliberate maintenance.
+
+The preflight then requires more than 400 GB of free space on the filesystem
+containing `/srv`, the planned offline-mirror location. It requests signed
 Debian, Docker and Metasploit repository metadata, GitHub's release API, PyPI and
 RubyGems package access, Rust's distribution service and PortSwigger's release
 page over certificate-validated HTTPS. It also
@@ -903,7 +912,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 
 | Area | Modification | Purpose / impact |
 | --- | --- | --- |
-| Preflight | Require more than 400 GB free for `/srv`; verify Debian, Docker, Metasploit, GitHub, PyPI, RubyGems, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when storage is insufficient or required Internet services are unavailable or intercepted by a captive portal |
+| Preflight | Require the short host name `deburner` and more than 400 GB free for `/srv`; verify Debian, Docker, Metasploit, GitHub, PyPI, RubyGems, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when the target is unintended, storage is insufficient, or required Internet services are unavailable or intercepted by a captive portal |
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |
@@ -928,7 +937,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
-| Orchestration | Add `deburner.yml` and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, and inventory generation with one command while retaining individual category entry points |
+| Orchestration | Add `deburner.yml`, a default `make` provisioning target and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, and inventory generation with one command while retaining individual category entry points |
 | Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner and its provisioning manifest locally without changing it or requiring Internet access |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.

@@ -1,4 +1,22 @@
 ---
+- name: Read the provisioning host name
+  ansible.builtin.command:
+    argv:
+      - /bin/hostname
+      - --short
+  register: preflight_hostname
+  changed_when: false
+
+- name: Require the dedicated burner host name
+  ansible.builtin.assert:
+    that:
+      - preflight_hostname.stdout | trim == 'deburner'
+    fail_msg: >-
+      Refusing to provision host {{ preflight_hostname.stdout | trim | quote }}.
+      This playbook requires the short host name deburner to reduce the risk of
+      running it on an unintended machine.
+    success_msg: The host name is deburner.
+
 - name: Validate preflight configuration
   ansible.builtin.assert:
     that:
