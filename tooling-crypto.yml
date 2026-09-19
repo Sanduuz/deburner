@@ -1,0 +1,20 @@
+---
+- name: Install Crypto and CTF utilities
+  hosts: burner
+  become: true
+  gather_facts: true
+  vars_files:
+    - - local.yml
+      - local.yml.example
+  pre_tasks:
+    - name: Require the supported local Debian baseline
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Debian'
+          - ansible_facts.distribution_major_version == '13'
+          - ansible_facts.architecture == 'x86_64'
+          - ansible_facts.service_mgr == 'systemd'
+          - ansible_connection == 'local'
+        fail_msg: This playbook supports locally managed Debian 13 amd64 with systemd only.
+  roles:
+    - tooling_crypto

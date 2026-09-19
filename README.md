@@ -50,7 +50,7 @@ command directly if preferred. Run it as your normal user;
 `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, wireless, pivoting, analysis,
-steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
+Crypto/CTF, steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
 reverse-engineering tooling, Android tooling, web tooling, SecLists, Docker, C2 tooling, optional
 BloodHound staging, user and desktop customizations, and the optional
 offline-mirror sync. It then writes a provisioning manifest describing the
@@ -73,8 +73,8 @@ do not run the guard and remain available for deliberate maintenance.
 The preflight then requires more than 400 GB of free space on the filesystem
 containing `/srv`, the planned offline-mirror location. It requests signed
 Debian, Docker and Metasploit repository metadata, GitHub's release API, PyPI and
-RubyGems package access, Rust's distribution service and PortSwigger's release
-page over certificate-validated HTTPS. It also
+RubyGems package access, conda-forge SageMath metadata, Rust's distribution
+service and PortSwigger's release page over certificate-validated HTTPS. It also
 checks service-specific response text, which prevents a captive portal's generic
 success page from passing. A failure stops `deburner.yml` before any system
 changes. The individual category playbooks remain available for deliberate
@@ -262,6 +262,7 @@ ansible-playbook tooling-network.yml --ask-become-pass
 ansible-playbook tooling-wireless.yml --ask-become-pass
 ansible-playbook tooling-pivoting.yml --ask-become-pass
 ansible-playbook tooling-analysis.yml --ask-become-pass
+ansible-playbook tooling-crypto.yml --ask-become-pass
 ansible-playbook tooling-media.yml --ask-become-pass
 ansible-playbook tooling-windows.yml --ask-become-pass
 ansible-playbook tooling-desktop.yml --ask-become-pass
@@ -530,6 +531,38 @@ final official Volatility 2.6 standalone Linux build under `/opt`, points
 `/opt/volatility2` to it, and exposes it as `volatility2`. Volatility 2 is
 archived legacy software and receives no updates; keep it only for profiles and
 plugins that have not been ported.
+
+### Crypto and CTF utilities
+
+`tooling-crypto.yml` installs Debian's hashID package, the current RsaCtfTool
+source and the current stable CyberChef standalone release. RsaCtfTool is
+installed into a versioned uv environment under `/opt`, with `RsaCtfTool` and
+`rsacrack` exposed system-wide. The role resolves the current commit from the
+official repository because the project does not publish releases. It uses a
+uv-managed Python 3.10 runtime, the newest version in the project's test matrix,
+instead of Debian 13's newer, upstream-untested Python 3.13. Run
+`tooling-analysis.yml` first when invoking this category separately because it
+provides uv.
+
+The role also installs the current checksum-described micromamba executable and
+uses it to create a complete SageMath environment under `/opt/sagemath` from
+conda-forge, following SageMath's supported Conda installation method. The
+`sage` command is available system-wide, which enables RsaCtfTool's Sage-backed
+attacks. Micromamba is not initialized in any user's shell and does not modify
+shell startup files. RsaCtfTool's Python dependencies remain confined to its
+dedicated uv environment.
+
+SageMath has a large dependency set. Its first installation can download several
+gigabytes and take considerable time to solve and extract. The default two-hour
+limit can be changed with `tooling_crypto_sagemath_install_timeout` in
+`local.yml`. Conda package metadata supplies integrity hashes, but those hashes
+and the packages come from the same conda-forge distribution channel.
+
+CyberChef's checksum-described release archive is extracted under `/opt` and is
+available from the application menu or the `cyberchef` command. The launcher
+opens the static application directly in Chromium from local files. It does not
+start a web server or open a listening port, and the installed application works
+without Internet access after provisioning.
 
 ### Steganography and media-analysis tooling
 
@@ -898,7 +931,8 @@ Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, Sliver, Metasploit,
 Tuoni source or container images, zsteg, StegSolve, BloodHound container images,
 ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or
 SecLists. It also does not contain JADX, Apktool, Frida, Objection, Android
-Studio, Android SDK components, Android system images, rootAVD or Magisk.
+Studio, Android SDK components, Android system images, rootAVD, Magisk,
+RsaCtfTool, micromamba, SageMath or CyberChef.
 
 ### Provisioning manifest
 
@@ -932,7 +966,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 
 | Area | Modification | Purpose / impact |
 | --- | --- | --- |
-| Preflight | Require the short host name `deburner` and more than 400 GB free for `/srv`; verify Debian, Docker, Metasploit, GitHub, PyPI, RubyGems, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when the target is unintended, storage is insufficient, or required Internet services are unavailable or intercepted by a captive portal |
+| Preflight | Require the short host name `deburner` and more than 400 GB free for `/srv`; verify Debian, Docker, Metasploit, GitHub, PyPI, RubyGems, conda-forge, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when the target is unintended, storage is insufficient, or required Internet services are unavailable or intercepted by a captive portal |
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |
@@ -946,6 +980,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Pivoting tooling | Install Debian's sshuttle and current checksum-described Chisel and Ligolo-ng releases; leave listeners, routes and interfaces unconfigured | Provide on-demand tunnelling and pivoting clients and servers without changing network state during provisioning |
 | C2 tooling | Install current checksum-described Sliver client/server binaries and Rapid7's signed Metasploit package; stage current Tuoni source and container images without initializing or starting the frameworks | Keep Sliver, Metasploit and Tuoni available for authorized exercises while leaving listeners, application containers and local C2 configuration under operator control |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
+| Crypto / CTF tooling | Install hashID, current-commit RsaCtfTool in an isolated uv environment, complete conda-forge SageMath through checksum-described micromamba, and the checksum-described current CyberChef standalone application | Provide RSA and Sage-backed attacks, mathematics, hash identification, encoding, encryption and data-transformation utilities without starting a local web service |
 | Steganography / media tooling | Install Debian media and steganography packages, isolated current zsteg, and the checksum-verified official StegSolve v1.4 JAR | Support hidden-data, image-plane, audio-spectrum, transcoding and file-carving challenges with command-line and graphical tools |
 | Windows / AD tooling | Install SMB/LDAP clients, Hashcat, John, Hydra, current stable Impacket, Certipy and NetExec, plus the current Responder source; expose their commands system-wide without enabling Responder | Support Windows and Active Directory discovery, authentication, credential recovery, relay and remote administration exercises without modifying Debian's Python environment or starting listeners |
 | BloodHound CE | Optionally install the checksum-described current BloodHound CLI, stage its complete Docker stack, preserve the initial local admin password root-only, and leave the containers stopped | Make graph-based Active Directory analysis available offline without exposing or running its web interface by default |
@@ -1023,6 +1058,7 @@ rustup --version
 rustc --version
 cargo --version
 command -v strace ltrace htop binwalk exiftool sqlite3 yara fls photorec
+command -v RsaCtfTool rsacrack sage micromamba hashid cyberchef
 command -v steghide stegseek zsteg outguess magick ffmpeg sox audacity sonic-visualiser foremost stegsolve
 command -v uv uvx vol volatility2 volatility3 volshell
 command -v smbclient ldapsearch hashcat john hydra responder certipy

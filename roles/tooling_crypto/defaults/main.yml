@@ -1,0 +1,21 @@
+---
+tooling_crypto_packages:
+  - ca-certificates
+  - chromium
+  - git
+  - hashid
+  - libgmp-dev
+  - libmpc-dev
+  - unzip
+
+tooling_crypto_github_api_headers:
+  Accept: application/vnd.github+json
+  X-GitHub-Api-Version: '2022-11-28'
+
+tooling_crypto_rsactftool_repository: https://github.com/RsaCtfTool/RsaCtfTool.git
+tooling_crypto_rsactftool_branch: master
+tooling_crypto_rsactftool_python: '3.10'
+tooling_crypto_cyberchef_release_api: https://api.github.com/repos/gchq/CyberChef/releases/latest
+tooling_crypto_micromamba_release_api: https://api.github.com/repos/mamba-org/micromamba-releases/releases/latest
+tooling_crypto_sagemath_prefix: /opt/sagemath
+tooling_crypto_sagemath_install_timeout: 7200

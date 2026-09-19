@@ -22,6 +22,9 @@
 - name: Install system and file analysis tooling
   ansible.builtin.import_playbook: tooling-analysis.yml
 
+- name: Install Crypto and CTF utilities
+  ansible.builtin.import_playbook: tooling-crypto.yml
+
 - name: Install steganography and media-analysis tooling
   ansible.builtin.import_playbook: tooling-media.yml
 

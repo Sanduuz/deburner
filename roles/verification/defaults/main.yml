@@ -24,6 +24,7 @@ verification_required_commands:
   - chisel
   - chromium
   - cowpatty
+  - cyberchef
   - curl
   - docker
   - exiftool
@@ -43,6 +44,7 @@ verification_required_commands:
   - gnome-terminal
   - go
   - hashcat
+  - hashid
   - horst
   - htop
   - hydra
@@ -66,6 +68,7 @@ verification_required_commands:
   - macchanger
   - magick
   - meld
+  - micromamba
   - msfconsole
   - msfvenom
   - mdk4
@@ -87,9 +90,12 @@ verification_required_commands:
   - responder
   - rfkill
   - rg
+  - RsaCtfTool
+  - rsacrack
   - rust-analyzer
   - rustc
   - rustup
+  - sage
   - sqlite3
   - smbclient
   - sliver-client
@@ -133,6 +139,7 @@ verification_required_system_files:
   - /etc/systemd/system/deburner-firewall.service
   - /etc/sysctl.d/90-deburner.conf
   - /opt/burpsuite-community/burpsuite-community.jar
+  - /opt/cyberchef/index.html
   - /opt/apktool/apktool.jar
   - /opt/jadx/bin/jadx
   - /opt/jwt_tool/jwt_tool.py
@@ -140,6 +147,7 @@ verification_required_system_files:
   - /opt/ligolo-ng/proxy
   - /opt/nikto/program/nikto.pl
   - /opt/peda/peda.py
+  - /opt/rsactftool/bin/RsaCtfTool
   - /opt/sliver/sliver-client
   - /opt/sliver/sliver-server
   - /opt/sqlmap/sqlmap.py
@@ -148,6 +156,7 @@ verification_required_system_files:
   - /opt/ysoserial/ysoserial-all.jar
   - /opt/zsteg/bin/zsteg
   - /usr/share/seclists/README.md
+  - /usr/local/share/applications/cyberchef.desktop
   - /usr/local/sbin/deburner-provision-manifest
   - /var/lib/deburner/provision-manifest.json
   - /srv/tuoni/tuoni

@@ -25,6 +25,7 @@ docker_group_users: []
 # tooling_wireless_packages: []
 # tooling_pivoting_packages: []
 # tooling_analysis_packages: []
+# tooling_crypto_packages: []
 # tooling_media_packages: []
 # tooling_windows_packages: []
 # tooling_bloodhound_packages: []
@@ -43,6 +44,9 @@ tooling_c2_tuoni_pull_timeout: 3600
 
 # Burp Suite Community is started with this Java heap limit.
 tooling_web_burp_max_heap: 4g
+
+# SageMath is installed from conda-forge and can take considerable time.
+tooling_crypto_sagemath_install_timeout: 7200
 
 # Optional BloodHound CE staging can download several large container images.
 tooling_bloodhound_enabled: false

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CyberChef
+Comment=Encoding, encryption and data analysis toolkit
+Exec=cyberchef
+Icon=/opt/cyberchef/images/cyberchef-128x128.png
+Terminal=false
+Categories=Utility;Development;

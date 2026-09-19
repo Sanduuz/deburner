@@ -191,6 +191,7 @@ def verify_tooling() -> None:
         "chisel",
         "chromium",
         "cowpatty",
+        "cyberchef",
         "curl",
         "exiftool",
         "fdfind",
@@ -208,6 +209,7 @@ def verify_tooling() -> None:
         "gobuster",
         "go",
         "hashcat",
+        "hashid",
         "horst",
         "htop",
         "hydra",
@@ -231,6 +233,7 @@ def verify_tooling() -> None:
         "macchanger",
         "magick",
         "meld",
+        "micromamba",
         "msfconsole",
         "msfvenom",
         "mdk4",
@@ -251,6 +254,9 @@ def verify_tooling() -> None:
         "responder",
         "rfkill",
         "rg",
+        "RsaCtfTool",
+        "rsacrack",
+        "sage",
         "rustc",
         "rust-analyzer",
         "sqlite3",
@@ -293,12 +299,15 @@ def verify_tooling() -> None:
     file_exists("/opt/zsteg/bin/zsteg", executable=True)
     file_exists("/etc/gdb/gdbinit.d/peda.gdb")
     file_exists("/opt/burpsuite-community/burpsuite-community.jar")
+    file_exists("/opt/cyberchef/index.html")
     file_exists("/opt/apktool/apktool.jar")
     file_exists("/opt/jadx/bin/jadx", executable=True)
     file_exists("/opt/jwt_tool/jwt_tool.py")
     file_exists("/opt/ligolo-ng/agent", executable=True)
     file_exists("/opt/ligolo-ng/proxy", executable=True)
     file_exists("/opt/nikto/program/nikto.pl")
+    file_exists("/opt/rsactftool/bin/RsaCtfTool", executable=True)
+    file_exists("/opt/sagemath/bin/sage", executable=True)
     file_exists("/opt/sqlmap/sqlmap.py")
     file_exists("/opt/testssl.sh/testssl.sh")
     file_exists("/opt/ysoserial/ysoserial-all.jar")
