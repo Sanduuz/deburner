@@ -1,0 +1,20 @@
+---
+# These packages provide on-demand wireless inspection and assessment tools.
+# The role does not reconfigure interfaces or start capture/attack processes.
+tooling_wireless_packages:
+  - aircrack-ng
+  - airgraph-ng
+  - bully
+  - cowpatty
+  - hcxdumptool
+  - hcxtools
+  - horst
+  - iw
+  - macchanger
+  - mdk4
+  - pixiewps
+  - reaver
+  - rfkill
+  - wavemon
+  - wifite
+  - wireless-tools

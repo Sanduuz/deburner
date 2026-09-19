@@ -5,6 +5,11 @@ verification_required_commands:
   - ansible-playbook
   - aapt
   - adb
+  - aireplay-ng
+  - airmon-ng
+  - airodump-ng
+  - aircrack-ng
+  - airgraph-ng
   - apksigner
   - apktool
   - audacity
@@ -12,11 +17,13 @@ verification_required_commands:
   - binwalk
   - binaryninja
   - burpsuite
+  - bully
   - cargo
   - certipy
   - checksec
   - chisel
   - chromium
+  - cowpatty
   - curl
   - docker
   - exiftool
@@ -36,13 +43,18 @@ verification_required_commands:
   - gnome-terminal
   - go
   - hashcat
+  - horst
   - htop
   - hydra
+  - hcxdumptool
+  - hcxpcapngtool
   - impacket-GetUserSPNs
   - impacket-ntlmrelayx
   - impacket-psexec
   - impacket-secretsdump
   - impacket-wmiexec
+  - iw
+  - iwconfig
   - john
   - jadx
   - jadx-gui
@@ -51,10 +63,12 @@ verification_required_commands:
   - ldapsearch
   - ligolo-agent
   - ligolo-proxy
+  - macchanger
   - magick
   - meld
   - msfconsole
   - msfvenom
+  - mdk4
   - netexec
   - nikto
   - nmap
@@ -63,12 +77,15 @@ verification_required_commands:
   - objection
   - openvpn
   - outguess
+  - pixiewps
   - pwn
   - pycdas
   - pycdc
   - python3
   - r2
+  - reaver
   - responder
+  - rfkill
   - rg
   - rust-analyzer
   - rustc
@@ -94,8 +111,10 @@ verification_required_commands:
   - volatility2
   - volatility3
   - volshell
+  - wavemon
   - wg
   - wireshark
+  - wifite
   - wl-copy
   - yara
   - ysoserial

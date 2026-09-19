@@ -49,7 +49,7 @@ The bare `make` command runs
 command directly if preferred. Run it as your normal user;
 `--ask-become-pass` supplies the sudo password.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
-playbooks in dependency order: hardening, core, network, pivoting, analysis,
+playbooks in dependency order: hardening, core, network, wireless, pivoting, analysis,
 steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
 reverse-engineering tooling, Android tooling, web tooling, SecLists, Docker, C2 tooling, optional
 BloodHound staging, user and desktop customizations, and the optional
@@ -259,6 +259,7 @@ ansible-playbook preflight.yml
 ansible-playbook hardening.yml --ask-become-pass
 ansible-playbook tooling-core.yml --ask-become-pass
 ansible-playbook tooling-network.yml --ask-become-pass
+ansible-playbook tooling-wireless.yml --ask-become-pass
 ansible-playbook tooling-pivoting.yml --ask-become-pass
 ansible-playbook tooling-analysis.yml --ask-become-pass
 ansible-playbook tooling-media.yml --ask-become-pass
@@ -471,6 +472,25 @@ Unprivileged packet capture is explicitly disabled. Use `sudo tcpdump` or
 `sudo tshark` when capture privileges are required, then inspect saved capture
 files without root privileges. The package list can be replaced with
 `tooling_network_packages` in `local.yml`.
+
+### Wireless analysis tooling
+
+`tooling-wireless.yml` installs Debian's Aircrack-ng suite, Airgraph-ng,
+hcxdumptool, hcxtools, iw, Wireless Tools, rfkill, wavemon, horst, Wifite,
+Reaver, Bully, Pixiewps, coWPAtty, MDK4 and macchanger. Together they cover
+adapter and radio inspection, monitor-mode capture, capture visualization,
+WPA handshake and PMKID processing, WPS assessment and common 802.11 CTF tasks.
+Hashcat, John, Wireshark and tshark are supplied by the existing Windows and
+network tooling categories.
+
+Provisioning only installs commands. It does not enable monitor mode, disconnect
+NetworkManager, change a MAC address, transmit frames or start a capture. The
+macchanger package is explicitly configured not to alter interfaces
+automatically. Wireless operations generally require `sudo` and a compatible
+external adapter whose driver supports monitor mode and, when needed, frame
+injection. Use active assessment commands only on event infrastructure where
+you have permission. Replace the complete package list with
+`tooling_wireless_packages` in `local.yml` when customization is needed.
 
 ### Pivoting tooling
 
@@ -922,6 +942,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Docker | Configure Docker's signed upstream stable repository; install `docker-ce`, CLI, containerd, Compose and Buildx plugins; manage `/etc/docker/daemon.json`; enable `docker.service` | Provide a current container toolchain with bounded local logs and no network-exposed daemon API |
 | Core tooling | Install command-line, archive, Python and native build packages from Debian; install the current upstream stable Rust toolchain with rustup | Provide a general base for CTF tooling without modifying personal shell or editor settings |
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
+| Wireless tooling | Install Debian's Aircrack-ng, hcxdumptool/hcxtools, WPS, capture-visualization and radio-management utilities without changing interface state | Support authorized 802.11 capture and assessment while leaving radio changes and active transmissions under operator control |
 | Pivoting tooling | Install Debian's sshuttle and current checksum-described Chisel and Ligolo-ng releases; leave listeners, routes and interfaces unconfigured | Provide on-demand tunnelling and pivoting clients and servers without changing network state during provisioning |
 | C2 tooling | Install current checksum-described Sliver client/server binaries and Rapid7's signed Metasploit package; stage current Tuoni source and container images without initializing or starting the frameworks | Keep Sliver, Metasploit and Tuoni available for authorized exercises while leaving listeners, application containers and local C2 configuration under operator control |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
@@ -994,6 +1015,8 @@ sudo docker compose version
 sudo docker buildx version
 python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 command -v git rg python3 pipx go rustup rustc rust-analyzer cargo clippy-driver rustfmt flake8 apt-file nmap openvpn wg tcpdump tshark wireshark
+command -v aircrack-ng airmon-ng airodump-ng aireplay-ng airgraph-ng hcxdumptool hcxpcapngtool iw iwconfig rfkill wavemon horst
+command -v reaver bully pixiewps wifite cowpatty mdk4 macchanger
 command -v chisel sshuttle ligolo-agent ligolo-proxy
 command -v sliver-client sliver-server msfconsole msfvenom tuoni
 rustup --version

@@ -13,6 +13,9 @@
 - name: Install network and VPN tooling
   ansible.builtin.import_playbook: tooling-network.yml
 
+- name: Install wireless analysis tooling
+  ansible.builtin.import_playbook: tooling-wireless.yml
+
 - name: Install tunnelling and pivoting tooling
   ansible.builtin.import_playbook: tooling-pivoting.yml
 
