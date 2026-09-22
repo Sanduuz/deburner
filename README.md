@@ -48,9 +48,13 @@ The canonical repository is
 Ansible collections are required.
 
 The bare `make` command runs
-`ansible-playbook deburner.yml --ask-become-pass`. You can invoke that Ansible
-command directly if preferred. Run it as your normal user;
-`--ask-become-pass` supplies the sudo password.
+`ansible-playbook deburner.yml --ask-become-pass`, which first validates the
+effective operator configuration. You can invoke that Ansible command directly
+if preferred. Run it as your normal user; `--ask-become-pass` supplies the sudo
+password. Ansible streams its normal output to the terminal while the wrapper
+retains a private timestamped log under `.logs/`.
+The directory is ignored by Git and each log is created with mode `0600` because
+Ansible output may contain machine-specific information.
 `deburner.yml` first runs a read-only Internet preflight, then runs the standard
 playbooks in dependency order: hardening, core, network, wireless, pivoting, analysis,
 Crypto/CTF, steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
@@ -313,6 +317,32 @@ ansible-playbook mirror-sync.yml --ask-become-pass
 ansible-playbook mirror-enable.yml --ask-become-pass
 ansible-playbook provision-manifest.yml --ask-become-pass
 ```
+
+The Makefile provides logged operator shortcuts for the common lifecycle steps:
+
+```sh
+make validate-config  # Local, read-only configuration checks
+make preflight        # Configuration, target host, storage and Internet checks
+make                  # Validate and provision the complete burner
+make verify           # Read-only post-reboot verification
+make mirror-sync      # Synchronize the optional mirror while online
+make mirror-enable    # Validate the mirror and switch APT to it
+make manifest         # Refresh the provisioning inventory
+```
+
+Every shortcut streams Ansible output live and stores the same combined output
+under `.logs/`. A failed Ansible command remains a failed Make target; logging
+does not hide or replace its exit status. Override `OPERATOR_LOG_ROOT` for a
+different log location or `ANSIBLE_PLAYBOOK` for a specific Ansible executable.
+
+`make validate-config` reads `local.yml`, or `local.yml.example` when no local
+file exists. It merges those values over all role defaults, rejects unknown
+variable names, checks the primary Boolean, account, port, timeout, mirror and
+package-list settings, and requires explicit Android SDK license acceptance when
+Android Studio is enabled. It does not gather host facts, contact the Internet,
+become root or change the machine. The normal `make`, `make preflight`, and other
+operator targets run this validation automatically. `deburner.yml` also imports
+the validator so direct full-playbook invocations cannot bypass it.
 
 ## Configuration
 
@@ -1033,7 +1063,8 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
-| Orchestration | Add `deburner.yml`, a default `make` provisioning target and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, and inventory generation with one command while retaining individual category entry points |
+| Orchestration | Add `deburner.yml`, logged Makefile operator targets and automatic `local.yml` loading | Stream and retain output while running the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, inventory generation, preflight and verification workflows |
+| Configuration validation | Merge operator overrides over all role defaults and validate supported names, types, ranges and optional-feature dependencies before operator workflows | Catch misspelled or incompatible `local.yml` values locally before lengthy downloads or privileged changes begin |
 | Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner and its provisioning manifest locally without changing it or requiring Internet access |
 | Operator checklist | Document preparation, configuration review, provisioning, post-reboot verification, optional mirror activation, event readiness and final disk erasure | Make the disposable-machine lifecycle reviewable without implying that an exposed installation can be recovered by rerunning Ansible |
 | Test VM | Provide local checks, a complete disposable Debian 13 VM workflow, and focused BloodHound and Android profiles | Validate provisioning before use while keeping large optional downloads and nested Android emulation out of the default `make test` run |

@@ -2,10 +2,14 @@
 
 export ANSIBLE_GALAXY_CACHE_DIR ?= $(CURDIR)/.cache/ansible/galaxy
 export ANSIBLE_LOCAL_TEMP ?= $(CURDIR)/.cache/ansible/local
+export ANSIBLE_REMOTE_TEMP ?= $(CURDIR)/.cache/ansible/remote
 export UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 
 PLAYBOOKS := $(sort $(wildcard *.yml))
 PYTHON ?= python3
+ANSIBLE_PLAYBOOK ?= ansible-playbook
+OPERATOR_LOG_ROOT ?= $(CURDIR)/.logs
+OPERATOR_RUN = $(PYTHON) tools/run_operator.py --log-dir "$(OPERATOR_LOG_ROOT)"
 
 TEST_VM_NAME ?= deburner-test
 TEST_VM_URI ?= qemu:///session
@@ -29,7 +33,8 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	--vcpus "$(TEST_VM_VCPUS)" \
 	--disk-gib "$(TEST_VM_DISK_GIB)"
 
-.PHONY: provision setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
+.PHONY: provision validate-config preflight verify mirror-sync mirror-enable manifest \
+	setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
 	test-android test-bloodhound \
 	test-prerequisites test-image test-image-status test-image-purge test-create test-start test-stop \
 	test-destroy test-status test-console test-wait test-provision test-verify test-reboot \
@@ -37,7 +42,25 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	test-bloodhound-provision test-bloodhound-verify test-bloodhound-idempotence test-refresh test-clean
 
 provision:
-	ansible-playbook deburner.yml --ask-become-pass
+	$(OPERATOR_RUN) --label provision -- $(ANSIBLE_PLAYBOOK) deburner.yml --ask-become-pass
+
+validate-config:
+	$(OPERATOR_RUN) --label validate-config -- $(ANSIBLE_PLAYBOOK) validate-config.yml
+
+preflight: validate-config
+	$(OPERATOR_RUN) --label preflight -- $(ANSIBLE_PLAYBOOK) preflight.yml
+
+verify: validate-config
+	$(OPERATOR_RUN) --label verify -- $(ANSIBLE_PLAYBOOK) verify.yml
+
+mirror-sync: validate-config
+	$(OPERATOR_RUN) --label mirror-sync -- $(ANSIBLE_PLAYBOOK) mirror-sync.yml --ask-become-pass
+
+mirror-enable: validate-config
+	$(OPERATOR_RUN) --label mirror-enable -- $(ANSIBLE_PLAYBOOK) mirror-enable.yml --ask-become-pass
+
+manifest: validate-config
+	$(OPERATOR_RUN) --label manifest -- $(ANSIBLE_PLAYBOOK) provision-manifest.yml --ask-become-pass
 
 setup:
 	@command -v uv >/dev/null || { echo "uv is required: https://docs.astral.sh/uv/getting-started/installation/" >&2; exit 1; }

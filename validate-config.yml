@@ -1,0 +1,206 @@
+---
+- name: Validate the local deburner configuration
+  hosts: burner
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Find all role default files
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/roles"
+        patterns: main.yml
+        file_type: file
+        recurse: true
+      register: configuration_default_file_search
+      changed_when: false
+
+    - name: Select role default files
+      ansible.builtin.set_fact:
+        configuration_default_files: >-
+          {{ configuration_default_file_search.files | map(attribute='path')
+             | select('match', '.*/defaults/main.yml$') | sort }}
+
+    - name: Require role defaults
+      ansible.builtin.assert:
+        that:
+          - configuration_default_files | length > 0
+        fail_msg: No role default files were found below the repository's roles directory.
+
+    - name: Load each role's defaults for validation
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+        name: configuration_current_role_defaults
+      loop: "{{ configuration_default_files }}"
+      register: configuration_loaded_role_defaults
+      loop_control:
+        label: "{{ item | relpath(playbook_dir) }}"
+
+    - name: Build the supported configuration mapping
+      ansible.builtin.set_fact:
+        configuration_role_defaults: >-
+          {{ configuration_role_defaults | default({})
+             | combine(item.ansible_facts.configuration_current_role_defaults) }}
+      loop: "{{ configuration_loaded_role_defaults.results }}"
+      loop_control:
+        label: "{{ item.item | relpath(playbook_dir) }}"
+
+    - name: Check for a local override file
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/local.yml"
+      register: configuration_local_file
+
+    - name: Select the operator configuration
+      ansible.builtin.set_fact:
+        configuration_source: >-
+          {{ playbook_dir + '/local.yml'
+             if configuration_local_file.stat.exists
+             else playbook_dir + '/local.yml.example' }}
+
+    - name: Load the operator configuration
+      ansible.builtin.include_vars:
+        file: "{{ configuration_source }}"
+        name: configuration_operator_values
+
+    - name: Calculate the effective configuration
+      ansible.builtin.set_fact:
+        configuration_unknown_variables: >-
+          {{ configuration_operator_values.keys()
+             | difference(configuration_role_defaults.keys()) | sort }}
+        configuration_effective: >-
+          {{ configuration_role_defaults | combine(configuration_operator_values) }}
+
+    - name: Reject unknown configuration variables
+      ansible.builtin.assert:
+        that:
+          - configuration_unknown_variables | length == 0
+        fail_msg: >-
+          {{ configuration_source | basename }} contains unsupported or misspelled variables:
+          {{ configuration_unknown_variables | join(', ') }}
+
+    - name: Validate Boolean configuration values
+      ansible.builtin.assert:
+        that:
+          - configuration_effective[item] | type_debug == 'bool'
+        fail_msg: "{{ item }} must be the YAML Boolean true or false."
+      loop:
+        - hardening_upgrade_packages
+        - hardening_automatic_security_updates
+        - hardening_disable_ssh
+        - docker_live_restore
+        - tooling_c2_tuoni_stage_images
+        - tooling_bloodhound_enabled
+        - tooling_mobile_android_studio_enabled
+        - tooling_mobile_android_licenses_accepted
+        - offline_mirror_enabled
+        - offline_mirror_include_sources
+        - offline_mirror_include_contents
+
+    - name: Validate preflight configuration values
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.preflight_network_timeout is integer
+          - configuration_effective.preflight_network_timeout >= 1
+          - configuration_effective.preflight_network_timeout <= 120
+          - configuration_effective.preflight_storage_path is match('^/')
+          - configuration_effective.preflight_minimum_free_bytes is integer
+          - configuration_effective.preflight_minimum_free_bytes > 0
+        fail_msg: Review the preflight values in the operator configuration.
+
+    - name: Validate firewall port lists
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.hardening_allowed_tcp_ports | type_debug == 'list'
+          - configuration_effective.hardening_allowed_udp_ports | type_debug == 'list'
+        fail_msg: Firewall port settings must be YAML lists.
+
+    - name: Validate every firewall port
+      ansible.builtin.assert:
+        that:
+          - item is integer
+          - item >= 1
+          - item <= 65535
+        fail_msg: Firewall ports must be YAML integers between 1 and 65535.
+      loop: >-
+        {{ configuration_effective.hardening_allowed_tcp_ports
+           + configuration_effective.hardening_allowed_udp_ports }}
+
+    - name: Validate Docker group users
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.docker_group_users | type_debug == 'list'
+          - configuration_effective.docker_group_users | unique | length
+            == configuration_effective.docker_group_users | length
+          - configuration_effective.docker_group_users
+            | select('match', '^[a-z_][a-z0-9_-]*[$]?$') | list | length
+            == configuration_effective.docker_group_users | length
+          - "'root' not in configuration_effective.docker_group_users"
+        fail_msg: Docker group users must be unique, valid, non-root local account names.
+
+    - name: Validate the customization account name
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.customization_user is string
+          - >-
+            configuration_effective.customization_user == ''
+            or configuration_effective.customization_user
+               is match('^[a-z_][a-z0-9_-]*[$]?$')
+          - configuration_effective.customization_user != 'root'
+        fail_msg: customization_user must be empty or a valid non-root local account name.
+
+    - name: Validate optional feature timeouts
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.tooling_c2_tuoni_pull_timeout is integer
+          - configuration_effective.tooling_c2_tuoni_pull_timeout >= 600
+          - configuration_effective.tooling_crypto_sagemath_install_timeout is integer
+          - configuration_effective.tooling_crypto_sagemath_install_timeout >= 3600
+          - configuration_effective.tooling_bloodhound_install_timeout is integer
+          - configuration_effective.tooling_bloodhound_install_timeout >= 300
+          - configuration_effective.offline_mirror_sync_timeout is integer
+          - configuration_effective.offline_mirror_sync_timeout >= 3600
+        fail_msg: One or more optional feature timeouts are invalid or too short.
+
+    - name: Require Android license acceptance when Android Studio is enabled
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.tooling_mobile_android_licenses_accepted
+        fail_msg: >-
+          Android Studio is enabled, but tooling_mobile_android_licenses_accepted is false.
+          Review the Android SDK license and explicitly accept it before provisioning.
+      when: configuration_effective.tooling_mobile_android_studio_enabled
+
+    - name: Validate offline mirror configuration
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.offline_mirror_root
+            is match('^/srv/[A-Za-z0-9._/-]+$')
+          - configuration_effective.offline_mirror_minimum_free_bytes is integer
+          - configuration_effective.offline_mirror_minimum_free_bytes > 0
+        fail_msg: The offline mirror must use a valid path below /srv and a positive size.
+
+    - name: Select overridden tooling package lists
+      ansible.builtin.set_fact:
+        configuration_package_overrides: >-
+          {{ configuration_operator_values | dict2items
+             | selectattr('key', 'match', '^tooling_.*_packages$') | list }}
+
+    - name: Validate overridden tooling package lists
+      ansible.builtin.assert:
+        that:
+          - item.value | type_debug == 'list'
+          - item.value | length > 0
+          - item.value | unique | length == item.value | length
+          - item.value | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length
+            == item.value | length
+        fail_msg: >-
+          {{ item.key }} must be a non-empty list of unique Debian package names.
+      loop: "{{ configuration_package_overrides }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Report the validated configuration
+      ansible.builtin.debug:
+        msg: >-
+          Configuration from {{ configuration_source | basename }} is valid.
+          BloodHound={{ configuration_effective.tooling_bloodhound_enabled }},
+          Android Studio={{ configuration_effective.tooling_mobile_android_studio_enabled }},
+          offline mirror={{ configuration_effective.offline_mirror_enabled }}.

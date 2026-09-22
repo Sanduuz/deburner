@@ -44,6 +44,11 @@ traffic or files.
       provided without warranty; make your own decision about every root-level
       change.
 - [ ] Keep `local.yml` private. It is ignored by Git.
+- [ ] Validate the effective configuration before beginning the lengthy run:
+
+  ```sh
+  make validate-config
+  ```
 
 ## 3. Configure this event
 
@@ -87,6 +92,8 @@ traffic or files.
 - [ ] Require the final Ansible recap to show `failed=0` and `unreachable=0`.
       Resolve provisioning errors before exposing the machine to an event
       network.
+- [ ] Retain the timestamped output under `.logs/` until preparation has been
+      reviewed. Logs use mode `0600` and are ignored by Git.
 - [ ] Confirm that `/var/lib/deburner/provision-manifest.json` exists. It records
       the installed package and tool inventory without configuration contents or
       user identity.
@@ -109,7 +116,7 @@ services are reachable over validated HTTPS.
       repository checkout:
 
   ```sh
-  ansible-playbook verify.yml
+  make verify
   ```
 
 - [ ] Require the verification playbook to finish without failed checks. It
@@ -132,8 +139,7 @@ Skip this section when `offline_mirror_enabled` is `false`.
       the machine still has Internet access:
 
   ```sh
-  ansible-playbook mirror-sync.yml --ask-become-pass \
-    --extra-vars offline_mirror_enabled=true
+  make mirror-sync
   ```
 
 - [ ] Refresh the mirror as close to disconnection as practical. Debian Release
@@ -143,7 +149,7 @@ Skip this section when `offline_mirror_enabled` is `false`.
       succeeds:
 
   ```sh
-  ansible-playbook mirror-enable.yml --ask-become-pass
+  make mirror-enable
   deburner-apt-mode status
   ```
 
