@@ -23,6 +23,9 @@ erase of the entire disk afterward. Never treat an event-exposed installation as
 trusted again. Choose disk encryption during Debian's installation; this project
 does not repartition disks, configure encryption, or erase the disk.
 
+Use the [pre-event provisioning checklist](PRE-EVENT-CHECKLIST.md) to prepare,
+verify, disconnect, and retire a burner through that lifecycle.
+
 ## Run on a fresh Debian installation
 
 Install Debian 13 amd64 with GNOME and a user allowed to use `sudo`. Prepare the
@@ -1032,6 +1035,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
 | Orchestration | Add `deburner.yml`, a default `make` provisioning target and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, and inventory generation with one command while retaining individual category entry points |
 | Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner and its provisioning manifest locally without changing it or requiring Internet access |
+| Operator checklist | Document preparation, configuration review, provisioning, post-reboot verification, optional mirror activation, event readiness and final disk erasure | Make the disposable-machine lifecycle reviewable without implying that an exposed installation can be recovered by rerunning Ansible |
 | Test VM | Provide local checks, a complete disposable Debian 13 VM workflow, and focused BloodHound and Android profiles | Validate provisioning before use while keeping large optional downloads and nested Android emulation out of the default `make test` run |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
