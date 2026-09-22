@@ -1,0 +1,154 @@
+---
+- name: Verify focused Android tooling installation
+  hosts: burner
+  become: true
+  gather_facts: true
+  vars_files:
+    - - local.yml
+      - local.yml.example
+  vars:
+    android_verification_commands:
+      - adb
+      - android-studio
+      - apktool
+      - avdmanager
+      - emulator
+      - fastboot
+      - frida
+      - frida-ps
+      - jadx
+      - jadx-gui
+      - objection
+      - rootavd
+      - sdkmanager
+      - uv
+    android_verification_system_paths:
+      - /etc/profile.d/deburner-android-sdk.sh
+      - /opt/android-studio/bin/studio
+      - /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager
+      - /opt/android-sdk/emulator/emulator
+      - /opt/rootAVD/rootAVD.sh
+      - /usr/local/share/applications/android-studio.desktop
+  pre_tasks:
+    - name: Load mobile tooling defaults for verification
+      ansible.builtin.include_vars:
+        file: roles/tooling_mobile/defaults/main.yml
+        name: android_verification_defaults
+
+    - name: Require the focused Android test configuration
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Debian'
+          - ansible_facts.distribution_major_version == '13'
+          - ansible_facts.architecture == 'x86_64'
+          - ansible_facts.service_mgr == 'systemd'
+          - ansible_connection == 'local'
+          - tooling_mobile_android_studio_enabled | bool
+          - tooling_mobile_android_licenses_accepted | bool
+        fail_msg: This verification playbook requires the enabled Debian 13 Android test profile.
+
+    - name: Resolve the Android desktop user
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ customization_user | default('1000', true) }}"
+
+    - name: Record Android verification paths
+      ansible.builtin.set_fact:
+        android_verification_user: >-
+          {{ ansible_facts.getent_passwd.keys() | first }}
+        android_verification_home: >-
+          {{ (ansible_facts.getent_passwd.values() | first)[4] }}
+        android_verification_avd_name: >-
+          {{ tooling_mobile_android_avd_name
+             | default(android_verification_defaults.tooling_mobile_android_avd_name) }}
+        android_verification_rooted_avd_name: >-
+          {{ tooling_mobile_android_rooted_avd_name
+             | default(android_verification_defaults.tooling_mobile_android_rooted_avd_name) }}
+        android_verification_rooted_api_level: >-
+          {{ tooling_mobile_android_rooted_api_level
+             | default(android_verification_defaults.tooling_mobile_android_rooted_api_level) }}
+        android_verification_rooted_image_flavor: >-
+          {{ tooling_mobile_android_rooted_system_image_flavor
+             | default(android_verification_defaults.tooling_mobile_android_rooted_system_image_flavor) }}
+        android_verification_image_architecture: >-
+          {{ tooling_mobile_android_system_image_architecture
+             | default(android_verification_defaults.tooling_mobile_android_system_image_architecture) }}
+
+  tasks:
+    - name: Resolve required Android commands
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/which
+          - "{{ item }}"
+      loop: "{{ android_verification_commands }}"
+      changed_when: false
+
+    - name: Inspect required Android system paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ android_verification_system_paths }}"
+      register: android_verification_system_files
+
+    - name: Require Android system paths
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg or item.stat.islnk
+        fail_msg: "Android installation path is missing: {{ item.item }}"
+      loop: "{{ android_verification_system_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Inspect Android virtual-device files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+      loop:
+        - >-
+          {{ android_verification_home ~ '/.android/avd/'
+             ~ android_verification_avd_name ~ '.avd/config.ini' }}
+        - >-
+          {{ android_verification_home ~ '/.android/avd/'
+             ~ android_verification_rooted_avd_name ~ '.avd/config.ini' }}
+        - >-
+          {{ android_verification_home ~ '/.android/avd/'
+             ~ android_verification_rooted_avd_name ~ '.avd/.deburner-rootavd' }}
+        - >-
+          {{ '/opt/android-sdk/system-images/android-'
+             ~ (android_verification_rooted_api_level | string) ~ '/'
+             ~ android_verification_rooted_image_flavor ~ '/'
+             ~ android_verification_image_architecture ~ '/ramdisk.img' }}
+        - >-
+          {{ '/opt/android-sdk/system-images/android-'
+             ~ (android_verification_rooted_api_level | string) ~ '/'
+             ~ android_verification_rooted_image_flavor ~ '/'
+             ~ android_verification_image_architecture ~ '/ramdisk.img.backup' }}
+      register: android_verification_avd_files
+
+    - name: Require Android virtual-device files
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg
+        fail_msg: "Android virtual-device file is missing: {{ item.item }}"
+      loop: "{{ android_verification_avd_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Require a patched rooted Android ramdisk
+      ansible.builtin.assert:
+        that:
+          - android_verification_avd_files.results[3].stat.checksum
+            != android_verification_avd_files.results[4].stat.checksum
+        fail_msg: The rooted AVD ramdisk matches its unpatched backup.
+
+    - name: Read KVM group membership
+      ansible.builtin.getent:
+        database: group
+        key: kvm
+
+    - name: Require Android desktop user KVM access
+      ansible.builtin.assert:
+        that:
+          - android_verification_user in ansible_facts.getent_group.kvm[2].split(',')
+        fail_msg: The Android desktop user is not a member of the kvm group.

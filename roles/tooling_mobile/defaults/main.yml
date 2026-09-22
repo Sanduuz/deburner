@@ -34,6 +34,10 @@ tooling_mobile_android_avd_name: deburner
 tooling_mobile_android_avd_device: pixel_7
 tooling_mobile_android_system_image_flavor: google_apis
 tooling_mobile_android_system_image_architecture: x86_64
+# Command-line tools 23 deprecated avdmanager and no longer recognizes SDK
+# package metadata needed for custom-image AVDs. Keep revision 22 only for AVD
+# creation; the current tools remain installed and provide sdkmanager/android.
+tooling_mobile_android_avdmanager_revision: '22.0'
 
 # rootAVD currently documents Android 14 support. Use a distinct Play image so
 # patching its shared ramdisk does not alter the newest unrooted AVD image.

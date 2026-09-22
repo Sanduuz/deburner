@@ -30,10 +30,11 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	--disk-gib "$(TEST_VM_DISK_GIB)"
 
 .PHONY: provision setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
-	test-bloodhound \
+	test-android test-bloodhound \
 	test-prerequisites test-image test-image-status test-image-purge test-create test-start test-stop \
 	test-destroy test-status test-console test-wait test-provision test-verify test-reboot \
-	test-idempotence test-refresh test-clean
+	test-idempotence test-android-provision test-android-verify test-android-idempotence \
+	test-bloodhound-provision test-bloodhound-verify test-bloodhound-idempotence test-refresh test-clean
 
 provision:
 	ansible-playbook deburner.yml --ask-become-pass
@@ -67,8 +68,11 @@ check-syntax:
 test: check
 	$(TEST_VM_COMMAND) run-workflow
 
+test-android: check
+	$(TEST_VM_COMMAND) --enable-android run-android-workflow
+
 test-bloodhound: check
-	$(TEST_VM_COMMAND) --enable-bloodhound run-workflow
+	$(TEST_VM_COMMAND) --enable-bloodhound run-bloodhound-workflow
 
 test-prerequisites:
 	$(TEST_VM_COMMAND) prerequisites
@@ -114,6 +118,24 @@ test-reboot:
 
 test-idempotence:
 	$(TEST_VM_COMMAND) idempotence
+
+test-android-provision:
+	$(TEST_VM_COMMAND) --enable-android provision-android
+
+test-android-verify:
+	$(TEST_VM_COMMAND) --enable-android verify-android
+
+test-android-idempotence:
+	$(TEST_VM_COMMAND) --enable-android idempotence-android
+
+test-bloodhound-provision:
+	$(TEST_VM_COMMAND) --enable-bloodhound provision-bloodhound
+
+test-bloodhound-verify:
+	$(TEST_VM_COMMAND) --enable-bloodhound verify-bloodhound
+
+test-bloodhound-idempotence:
+	$(TEST_VM_COMMAND) --enable-bloodhound idempotence-bloodhound
 
 test-refresh:
 	$(TEST_VM_COMMAND) refresh-source

@@ -160,8 +160,8 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
     mode: '0755'
   loop:
     - "{{ tooling_mobile_android_sdk_root }}"
@@ -292,6 +292,16 @@
          ~ '/' ~ tooling_mobile_android_system_image_architecture
          ~ '/package.xml' }}
 
+- name: Install the avdmanager compatibility tools
+  ansible.builtin.command:
+    argv:
+      - "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+      - "--sdk_root={{ tooling_mobile_android_sdk_root }}"
+      - "cmdline-tools;{{ tooling_mobile_android_avdmanager_revision }}"
+    creates: >-
+      {{ tooling_mobile_android_sdk_root ~ '/cmdline-tools/'
+         ~ tooling_mobile_android_avdmanager_revision ~ '/bin/avdmanager' }}
+
 - name: Install stable optional Android commands
   ansible.builtin.file:
     src: "{{ item.source }}"
@@ -299,7 +309,9 @@
     state: link
     force: true
   loop:
-    - source: "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/avdmanager"
+    - source: >-
+        {{ tooling_mobile_android_sdk_root ~ '/cmdline-tools/'
+           ~ tooling_mobile_android_avdmanager_revision ~ '/bin/avdmanager' }}
       destination: avdmanager
     - source: "{{ tooling_mobile_android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
       destination: sdkmanager

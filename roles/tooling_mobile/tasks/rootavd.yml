@@ -62,13 +62,25 @@
     tooling_mobile_rootavd_install_dir: >-
       /opt/rootAVD-{{ tooling_mobile_rootavd_branch.json.commit.id }}
 
+- name: Create the rootAVD revision directory
+  ansible.builtin.file:
+    path: "{{ tooling_mobile_rootavd_install_dir }}"
+    state: directory
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
+    mode: '0755'
+
 - name: Install the current rootAVD revision
+  become: true
+  become_user: "{{ tooling_mobile_android_user }}"
   ansible.builtin.git:
     repo: "{{ tooling_mobile_rootavd_repository }}"
     dest: "{{ tooling_mobile_rootavd_install_dir }}"
     version: "{{ tooling_mobile_rootavd_commit }}"
     depth: 1
     force: false
+  environment:
+    HOME: "{{ tooling_mobile_android_home }}"
 
 - name: Create the stable rootAVD path
   ansible.builtin.file:

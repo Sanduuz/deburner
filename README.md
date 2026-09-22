@@ -189,8 +189,9 @@ workflow does not enable, configure, or use SSH.
 `git ls-files --cached --others --exclude-standard`. Ignored files, including
 the operator's `local.yml`, Git metadata, caches and earlier test state are not
 copied. The guest receives a generated `local.yml` that explicitly disables the
-optional offline mirror and BloodHound profile. Cloud-init copies this snapshot
-to `/opt/deburner` before the guest agent becomes ready.
+optional offline mirror, BloodHound and Android Studio profiles unless their
+dedicated test target enables them. Cloud-init copies this snapshot to
+`/opt/deburner` before the guest agent becomes ready.
 
 After `test-wait`, the remaining stages can be run separately:
 
@@ -225,17 +226,42 @@ then removes the domain and overlay. The verified Debian cloud image remains
 cached. Provisioning downloads the complete toolset and can take a long time;
 the offline Debian mirror is deliberately excluded.
 
-Run the separate, heavier profile when changing the optional BloodHound role:
+Run the separate BloodHound profile when changing its Docker staging role:
 
 ```sh
 make test-bloodhound
 ```
 
-It performs the same fresh-VM workflow with `tooling_bloodhound_enabled: true`.
-Verification requires the CLI, staging marker, protected initial-credential
-file and BloodHound container image, and confirms that the application container
-was left stopped. The normal `make test` remains the default profile and does
-not download or stage BloodHound.
+This focused workflow runs only `docker.yml` and `tooling-bloodhound.yml` with
+`tooling_bloodhound_enabled: true`. It skips the hardening, unrelated tooling,
+customization and manifest stages. Focused verification checks Docker and
+Compose, the BloodHound CLI, staging marker, protected initial-credential file
+and container images before and after a reboot, and confirms that the
+application containers remain stopped. The idempotence stage reruns only Docker
+and BloodHound provisioning. The normal `make test` does not download or stage
+BloodHound.
+
+Run the Android profile separately when changing Android Studio, SDK, emulator,
+AVD or rootAVD provisioning:
+
+```sh
+make test-android
+```
+
+This focused workflow installs the analysis role that supplies `uv`, then runs
+only `tooling-mobile.yml` with Android Studio enabled and the Android SDK license
+explicitly accepted in the generated test configuration. It skips the other
+hardening, tooling, Docker, customization and manifest stages. Focused
+verification checks the mobile commands, SDK files, both AVDs, the rootAVD
+marker, patched ramdisk and KVM group membership before and after a reboot. The
+idempotence stage reruns only the analysis prerequisite and mobile playbooks.
+
+The workflow downloads the SDK and both system images, creates both AVDs, and
+boots the rooted AVD during rootAVD installation. It requires nested
+virtualization and a usable `/dev/kvm` inside the guest; it fails before
+provisioning if that is unavailable. It can take considerably longer than the
+standard workflow and is therefore excluded from `make test`. Increase
+`TEST_VM_MEMORY_MIB` or `TEST_VM_VCPUS` on hosts with more capacity if needed.
 
 Ansible and verification logs are retained under `.test-results/`, which is
 ignored by Git. Successful tests remove their VM automatically. A failed test
@@ -244,6 +270,10 @@ preserves its VM and overlay for inspection; use `make test-status` and
 `/opt/deburner` from the same non-ignored working-tree file set through QGA, so a
 failed stage can be rerun without rebuilding the guest. Run `make test-clean`
 when inspection is complete; it shuts down and removes the disposable VM.
+Focused-profile failures can be resumed after `make test-refresh` with
+`make test-android-provision`, `make test-android-verify` or
+`make test-android-idempotence`; the corresponding BloodHound targets replace
+`android` with `bloodhound`.
 
 Resource settings and the connection can be overridden for one invocation:
 
@@ -749,6 +779,13 @@ platform under `/opt/android-sdk`. It creates a stopped, unrooted AVD named
 `deburner` for the configured desktop user. That image does not include the Play
 Store.
 
+The current command-line tools remain the primary SDK tools. A separate Google
+command-line tools revision 22 installation supplies only `avdmanager`, because
+Google deprecated that command and revision 23 no longer recognizes the custom
+system-image packages required to create the named rootAVD-compatible devices.
+Google's replacement Android CLI currently creates only its predefined profiles
+and cannot select the API 34 Google Play image required here.
+
 The same profile also installs a distinct Android 14/API 34 Google Play x86_64
 image and creates `deburner-rooted`. It resolves the current commit from the
 official [rootAVD repository](https://gitlab.com/newbit/rootAVD), checks out that
@@ -995,6 +1032,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
 | Orchestration | Add `deburner.yml`, a default `make` provisioning target and automatic `local.yml` loading | Run the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, and inventory generation with one command while retaining individual category entry points |
 | Verification | Add an optional read-only `verify.yml` playbook | Check the rebooted burner and its provisioning manifest locally without changing it or requiring Internet access |
+| Test VM | Provide local checks, a complete disposable Debian 13 VM workflow, and focused BloodHound and Android profiles | Validate provisioning before use while keeping large optional downloads and nested Android emulation out of the default `make test` run |
 
 The firewall replaces only the `inet deburner` table in one nftables transaction.
 It has no output or forwarding chain, does not flush the global ruleset, and

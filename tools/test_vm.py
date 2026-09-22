@@ -58,6 +58,7 @@ class Config:
     memory_mib: int
     vcpus: int
     disk_gib: int
+    android_enabled: bool
     bloodhound_enabled: bool
 
     @property
@@ -487,10 +488,19 @@ def create_source_iso(config: Config) -> None:
         "# Generated only for the disposable integration-test guest.\n"
         "customization_user: debian\n"
         "offline_mirror_enabled: false\n"
+        f"tooling_mobile_android_studio_enabled: {str(config.android_enabled).lower()}\n"
+        f"tooling_mobile_android_licenses_accepted: {str(config.android_enabled).lower()}\n"
         f"tooling_bloodhound_enabled: {str(config.bloodhound_enabled).lower()}\n"
     )
     (config.source_tree_path / ".test-profile.json").write_text(
-        json.dumps({"bloodhound_enabled": config.bloodhound_enabled}, sort_keys=True) + "\n"
+        json.dumps(
+            {
+                "android_enabled": config.android_enabled,
+                "bloodhound_enabled": config.bloodhound_enabled,
+            },
+            sort_keys=True,
+        )
+        + "\n"
     )
     run(
         [
@@ -904,14 +914,19 @@ def write_result(config: Config, name: str, stdout: str, stderr: str, exit_code:
     return log_path
 
 
-def provision_guest(config: Config, *, idempotence: bool = False) -> None:
+def run_provisioning_playbook(
+    config: Config,
+    playbook: str,
+    label: str,
+    *,
+    require_idempotence: bool = False,
+) -> None:
     validate_config(config)
     check_connection(config)
     if not domain_exists(config) or not is_running(config):
         raise VmError(f"Domain {config.name!r} is not running.")
     validate_marker(config)
-    label = "idempotence" if idempotence else "provision"
-    print(f"Running deburner.yml inside the guest ({label})...", flush=True)
+    print(f"Running {playbook} inside the guest ({label})...", flush=True)
     exit_code, stdout, stderr, log_path = guest_exec_streamed(
         config,
         label,
@@ -919,7 +934,7 @@ def provision_guest(config: Config, *, idempotence: bool = False) -> None:
         [
             "--inventory",
             "/opt/deburner/inventory.ini",
-            "/opt/deburner/deburner.yml",
+            f"/opt/deburner/{playbook}",
         ],
         environment={
             "ANSIBLE_CONFIG": "/opt/deburner/ansible.cfg",
@@ -941,10 +956,20 @@ def provision_guest(config: Config, *, idempotence: bool = False) -> None:
     )
     if not recap or "failed=0" not in recap or "unreachable=0" not in recap:
         raise VmError(f"Ansible output did not contain a successful recap; see {log_path}.")
-    if idempotence and not re.search(r"\bchanged=0\b", recap):
+    if require_idempotence and not re.search(r"\bchanged=0\b", recap):
         raise VmError(f"The second provisioning run was not idempotent ({recap}); see {log_path}.")
     print(f"Provisioning completed: {recap}")
     print(f"Full log: {log_path}")
+
+
+def provision_guest(config: Config, *, idempotence: bool = False) -> None:
+    label = "idempotence" if idempotence else "provision"
+    run_provisioning_playbook(
+        config,
+        "deburner.yml",
+        label,
+        require_idempotence=idempotence,
+    )
 
 
 def provision(config: Config) -> None:
@@ -953,6 +978,46 @@ def provision(config: Config) -> None:
 
 def idempotence(config: Config) -> None:
     provision_guest(config, idempotence=True)
+
+
+def provision_android(config: Config, *, idempotence: bool = False) -> None:
+    if not config.android_enabled:
+        raise VmError("The focused Android workflow requires --enable-android.")
+    phase = "idempotence" if idempotence else "provision"
+    for component, playbook in (
+        ("analysis-prerequisite", "tooling-analysis.yml"),
+        ("mobile", "tooling-mobile.yml"),
+    ):
+        run_provisioning_playbook(
+            config,
+            playbook,
+            f"android-{phase}-{component}",
+            require_idempotence=idempotence,
+        )
+
+
+def idempotence_android(config: Config) -> None:
+    provision_android(config, idempotence=True)
+
+
+def provision_bloodhound(config: Config, *, idempotence: bool = False) -> None:
+    if not config.bloodhound_enabled:
+        raise VmError("The focused BloodHound workflow requires --enable-bloodhound.")
+    phase = "idempotence" if idempotence else "provision"
+    for component, playbook in (
+        ("docker-prerequisite", "docker.yml"),
+        ("bloodhound", "tooling-bloodhound.yml"),
+    ):
+        run_provisioning_playbook(
+            config,
+            playbook,
+            f"bloodhound-{phase}-{component}",
+            require_idempotence=idempotence,
+        )
+
+
+def idempotence_bloodhound(config: Config) -> None:
+    provision_bloodhound(config, idempotence=True)
 
 
 def verify(config: Config, *, label: str = "verify") -> None:
@@ -1021,6 +1086,71 @@ def verify(config: Config, *, label: str = "verify") -> None:
 
 def verify_guest(config: Config) -> None:
     verify(config)
+
+
+def run_focused_verification(
+    config: Config,
+    playbook: str,
+    label: str,
+    profile_name: str,
+) -> None:
+    validate_config(config)
+    check_connection(config)
+    if not domain_exists(config) or not is_running(config):
+        raise VmError(f"Domain {config.name!r} is not running.")
+    validate_marker(config)
+    print(f"Running focused {profile_name} verification inside the guest...", flush=True)
+    exit_code, stdout, stderr, log_path = guest_exec_streamed(
+        config,
+        label,
+        "/usr/bin/ansible-playbook",
+        [
+            "--inventory",
+            "/opt/deburner/inventory.ini",
+            f"/opt/deburner/{playbook}",
+        ],
+        environment={
+            "ANSIBLE_CONFIG": "/opt/deburner/ansible.cfg",
+            "ANSIBLE_FORCE_COLOR": "0",
+            "HOME": "/root",
+            "LANG": "C.UTF-8",
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "PYTHONUNBUFFERED": "1",
+        },
+        timeout=900,
+    )
+    if exit_code != 0:
+        details = (
+            (stderr or stdout or f"{profile_name} verification failed").strip().splitlines()[-1]
+        )
+        raise VmError(f"{profile_name} verification failed; see {log_path}: {details}")
+    recap = next(
+        (line.strip() for line in reversed(stdout.splitlines()) if "failed=" in line),
+        "",
+    )
+    if (
+        not recap
+        or "failed=0" not in recap
+        or "unreachable=0" not in recap
+        or not re.search(r"\bchanged=0\b", recap)
+    ):
+        raise VmError(
+            f"{profile_name} verification was unsuccessful or changed the guest; see {log_path}."
+        )
+    print(f"{profile_name} verification completed without changes: {recap}")
+    print(f"Full log: {log_path}")
+
+
+def verify_android(config: Config, *, label: str = "verify-android") -> None:
+    if not config.android_enabled:
+        raise VmError("The focused Android workflow requires --enable-android.")
+    run_focused_verification(config, "verify-android.yml", label, "Android")
+
+
+def verify_bloodhound(config: Config, *, label: str = "verify-bloodhound") -> None:
+    if not config.bloodhound_enabled:
+        raise VmError("The focused BloodHound workflow requires --enable-bloodhound.")
+    run_focused_verification(config, "verify-bloodhound.yml", label, "BloodHound")
 
 
 def prerequisites(config: Config) -> None:
@@ -1227,8 +1357,45 @@ def wait_agent(config: Config, *, initial_boot: bool = True) -> None:
         )
     if not dns_result:
         raise VmError("Guest DNS lookup for deb.debian.org returned no addresses.")
+    if config.android_enabled:
+        require_nested_kvm(config)
     print(f"QEMU guest agent ready; {cloud_init}; {python_version}.")
     print(f"Guest commands run as root; filesystem size is {root_size_bytes} bytes; DNS works.")
+
+
+def require_nested_kvm(config: Config) -> None:
+    """Load and validate nested KVM before the Android profile downloads large artifacts."""
+    cpuinfo = require_guest_command(config, "/usr/bin/cat", ["/proc/cpuinfo"])
+    if "GenuineIntel" in cpuinfo:
+        module = "kvm_intel"
+    elif "AuthenticAMD" in cpuinfo:
+        module = "kvm_amd"
+    else:
+        raise VmError("Android tests require nested KVM, but the guest CPU vendor is unsupported.")
+
+    module_exit, module_stdout, module_stderr = guest_exec(
+        config,
+        "/usr/sbin/modprobe",
+        [module],
+    )
+    if module_exit != 0:
+        details = (module_stderr or module_stdout or "module loading failed").strip()
+        raise VmError(
+            f"Android tests require nested KVM, but {module} could not be loaded: {details}"
+        )
+
+    for permission in ("-c", "-r", "-w"):
+        exit_code, _stdout, _stderr = guest_exec(
+            config,
+            "/usr/bin/test",
+            [permission, "/dev/kvm"],
+        )
+        if exit_code != 0:
+            raise VmError(
+                "Android tests require a usable /dev/kvm inside the guest. "
+                "Enable nested virtualization on the host or use the standard make test profile."
+            )
+    print("Nested KVM is available for the Android emulator.")
 
 
 def reboot(config: Config) -> None:
@@ -1291,6 +1458,56 @@ def run_workflow(config: Config) -> None:
     print(f"Complete integration test passed. Results: {config.results_dir}")
 
 
+def run_android_workflow(config: Config) -> None:
+    """Run the focused Android integration workflow and clean up only after success."""
+    if not config.android_enabled:
+        raise VmError("The focused Android workflow requires --enable-android.")
+    try:
+        create(config)
+        start(config)
+        wait_agent(config)
+        provision_android(config)
+        verify_android(config)
+        reboot(config)
+        verify_android(config, label="verify-android-after-reboot")
+        idempotence_android(config)
+        stop(config)
+        clean(config)
+    except Exception:
+        print(
+            "The failed Android test VM and its overlay were preserved for inspection. "
+            "Use make test-status or make test-console, then use make test-clean when finished.",
+            file=sys.stderr,
+        )
+        raise
+    print(f"Focused Android integration test passed. Results: {config.results_dir}")
+
+
+def run_bloodhound_workflow(config: Config) -> None:
+    """Run the focused BloodHound integration workflow and clean up only after success."""
+    if not config.bloodhound_enabled:
+        raise VmError("The focused BloodHound workflow requires --enable-bloodhound.")
+    try:
+        create(config)
+        start(config)
+        wait_agent(config)
+        provision_bloodhound(config)
+        verify_bloodhound(config)
+        reboot(config)
+        verify_bloodhound(config, label="verify-bloodhound-after-reboot")
+        idempotence_bloodhound(config)
+        stop(config)
+        clean(config)
+    except Exception:
+        print(
+            "The failed BloodHound test VM and its overlay were preserved for inspection. "
+            "Use make test-status or make test-console, then use make test-clean when finished.",
+            file=sys.stderr,
+        )
+        raise
+    print(f"Focused BloodHound integration test passed. Results: {config.results_dir}")
+
+
 def clean(config: Config) -> None:
     validate_config(config)
     check_commands()
@@ -1326,16 +1543,24 @@ COMMANDS = {
     "image-purge": image_purge,
     "image-status": image_status,
     "idempotence": idempotence,
+    "idempotence-android": idempotence_android,
+    "idempotence-bloodhound": idempotence_bloodhound,
     "prerequisites": prerequisites,
     "provision": provision,
+    "provision-android": provision_android,
+    "provision-bloodhound": provision_bloodhound,
     "reboot": reboot,
     "refresh-source": refresh_source,
+    "run-android-workflow": run_android_workflow,
+    "run-bloodhound-workflow": run_bloodhound_workflow,
     "run-workflow": run_workflow,
     "start": start,
     "status": status,
     "stop": stop,
     "wait-agent": wait_agent,
     "verify": verify_guest,
+    "verify-android": verify_android,
+    "verify-bloodhound": verify_bloodhound,
 }
 
 
@@ -1367,6 +1592,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vcpus", type=positive_integer, default=4)
     parser.add_argument("--disk-gib", type=positive_integer, default=450)
     parser.add_argument(
+        "--enable-android",
+        action="store_true",
+        help="enable and verify Android Studio, SDK, and both AVDs",
+    )
+    parser.add_argument(
         "--enable-bloodhound",
         action="store_true",
         help="enable and verify the optional BloodHound CE staging role",
@@ -1388,6 +1618,7 @@ def main() -> int:
         memory_mib=arguments.memory_mib,
         vcpus=arguments.vcpus,
         disk_gib=arguments.disk_gib,
+        android_enabled=arguments.enable_android,
         bloodhound_enabled=arguments.enable_bloodhound,
     )
     try:

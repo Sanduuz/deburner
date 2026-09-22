@@ -1,0 +1,106 @@
+---
+- name: Verify focused BloodHound installation
+  hosts: burner
+  become: true
+  gather_facts: true
+  vars_files:
+    - - local.yml
+      - local.yml.example
+  pre_tasks:
+    - name: Require the focused BloodHound test configuration
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Debian'
+          - ansible_facts.distribution_major_version == '13'
+          - ansible_facts.architecture == 'x86_64'
+          - ansible_facts.service_mgr == 'systemd'
+          - ansible_connection == 'local'
+          - tooling_bloodhound_enabled | bool
+        fail_msg: This verification playbook requires the enabled Debian 13 BloodHound test profile.
+
+  tasks:
+    - name: Check Docker service state
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - docker.service
+      register: bloodhound_verification_docker_service
+      changed_when: false
+
+    - name: Require the active Docker service
+      ansible.builtin.assert:
+        that:
+          - bloodhound_verification_docker_service.stdout | trim == 'active'
+
+    - name: Check Docker Compose availability
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - version
+      changed_when: false
+
+    - name: Inspect BloodHound installation files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/local/bin/bloodhound-cli
+        - /var/lib/deburner/bloodhound-ce-installed
+        - /root/.config/bloodhound/deburner-initial-install.txt
+      register: bloodhound_verification_files
+
+    - name: Require BloodHound installation files
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg or item.stat.islnk
+        fail_msg: "BloodHound installation file is missing: {{ item.item }}"
+      loop: "{{ bloodhound_verification_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Require protected BloodHound credentials
+      ansible.builtin.assert:
+        that:
+          - bloodhound_verification_files.results[2].stat.mode == '0600'
+        fail_msg: BloodHound initial credentials must be readable by root only.
+
+    - name: List staged container image repositories
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - image
+          - ls
+          - --format
+          - "{{ '{{.Repository}}' }}"
+      register: bloodhound_verification_images
+      changed_when: false
+
+    - name: Require staged BloodHound images
+      ansible.builtin.assert:
+        that:
+          - bloodhound_verification_images.stdout_lines
+            | select('search', '(?i)bloodhound')
+            | list
+            | length > 0
+        fail_msg: No staged BloodHound container image was found.
+
+    - name: List running container images
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - ps
+          - --format
+          - "{{ '{{.Image}}' }}"
+      register: bloodhound_verification_running_images
+      changed_when: false
+
+    - name: Require BloodHound containers to remain stopped
+      ansible.builtin.assert:
+        that:
+          - bloodhound_verification_running_images.stdout_lines
+            | select('search', '(?i)bloodhound')
+            | list
+            | length == 0
+        fail_msg: A BloodHound application container is still running.
