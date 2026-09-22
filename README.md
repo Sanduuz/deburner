@@ -129,10 +129,14 @@ make check
 ```
 
 `make check` verifies whitespace, checks every YAML file with yamllint, runs
-ansible-lint with its production profile, and performs an Ansible syntax check on
-every top-level playbook. The development dependencies are isolated in `.venv`
-and locked by `uv.lock`; they are not installed globally or provisioned on the
+ansible-lint with its production profile, performs an Ansible syntax check on
+every top-level playbook, and runs the isolated configuration-validation
+regression cases. The development dependencies are isolated in `.venv` and
+locked by `uv.lock`; they are not installed globally or provisioned on the
 burner. Run `uv lock --upgrade` deliberately when updating the validation tools.
+Use `make test-config` to run only the fast configuration cases. They verify
+valid default and optional-profile configurations plus representative failures
+without reading or replacing the operator's `local.yml` or changing the host.
 Use `make check` for routine changes. Reserve the resource-intensive `make test`
 workflow for substantial provisioning or VM infrastructure changes and final
 validation before a release.

@@ -33,7 +33,7 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	--vcpus "$(TEST_VM_VCPUS)" \
 	--disk-gib "$(TEST_VM_DISK_GIB)"
 
-.PHONY: provision validate-config preflight verify mirror-sync mirror-enable manifest \
+.PHONY: provision validate-config preflight verify mirror-sync mirror-enable manifest test-config \
 	setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
 	test-android test-bloodhound \
 	test-prerequisites test-image test-image-status test-image-purge test-create test-start test-stop \
@@ -66,7 +66,7 @@ setup:
 	@command -v uv >/dev/null || { echo "uv is required: https://docs.astral.sh/uv/getting-started/installation/" >&2; exit 1; }
 	uv sync --frozen
 
-check: setup check-whitespace check-yaml check-ansible-lint check-python check-syntax
+check: setup check-whitespace check-yaml check-ansible-lint check-python check-syntax test-config
 
 check-whitespace:
 	git diff --check HEAD
@@ -87,6 +87,9 @@ check-syntax:
 		echo "Syntax checking $$playbook"; \
 		uv run --frozen ansible-playbook --syntax-check "$$playbook"; \
 	done
+
+test-config: setup
+	uv run --frozen python tools/test_config.py
 
 test: check
 	$(TEST_VM_COMMAND) run-workflow
