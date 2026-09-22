@@ -77,15 +77,29 @@ provisioning. This fixed guard reduces the chance of applying the burner
 configuration to another machine accidentally. Individual category playbooks
 do not run the guard and remain available for deliberate maintenance.
 
-The preflight then requires more than 400 GB of free space on the filesystem
-containing `/srv`, the planned offline-mirror location. It requests signed
-Debian, Docker and Metasploit repository metadata, GitHub's release API, PyPI and
-RubyGems package access, conda-forge SageMath metadata, Rust's distribution
-service and PortSwigger's release page over certificate-validated HTTPS. It also
-checks service-specific response text, which prevents a captive portal's generic
-success page from passing. A failure stops `deburner.yml` before any system
-changes. The individual category playbooks remain available for deliberate
-partial or offline reruns and do not invoke the preflight automatically.
+The preflight then resolves the selected desktop account and every requested
+Docker group user before any downloads. It requires more than 400 GB of free
+space on the filesystem containing `/srv`, the planned offline-mirror location.
+When the offline mirror is enabled, it also applies the mirror's configured
+capacity requirement to `/srv` and checks the Debian security archive.
+
+The baseline requests signed Debian, Docker and Metasploit repository metadata,
+GitHub's release API, PyPI and RubyGems package access, conda-forge SageMath
+metadata, Rust's distribution service and PortSwigger's release page over
+certificate-validated HTTPS. When selected profiles require them, the preflight
+also checks the Android release and SDK services, rootAVD's GitLab API, Docker
+Hub and GitHub's container registry. Authenticated container registries are
+expected to return their normal `401 Unauthorized` API response. All endpoints
+must return a service-specific content marker, which prevents a captive portal's
+generic response from passing.
+
+Enabling Android Studio additionally requires `/dev/kvm` to exist as a character
+device, catching disabled or unavailable hardware virtualization before its
+large downloads begin. The role reports the resolved desktop user and enabled
+optional profiles before checking their endpoints. A failure stops
+`deburner.yml` before any system changes. The individual category playbooks
+remain available for deliberate partial or offline reruns and do not invoke the
+preflight automatically.
 
 The disk threshold uses decimal gigabytes: 400 GB is 400,000,000,000 bytes. Change
 `preflight_storage_path` if the future mirror will live on another filesystem, or
@@ -1036,7 +1050,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 
 | Area | Modification | Purpose / impact |
 | --- | --- | --- |
-| Preflight | Require the short host name `deburner` and more than 400 GB free for `/srv`; verify Debian, Docker, Metasploit, GitHub, PyPI, RubyGems, conda-forge, Rust and PortSwigger over HTTPS | Stop the umbrella playbook before system changes when the target is unintended, storage is insufficient, or required Internet services are unavailable or intercepted by a captive portal |
+| Preflight | Require the short host name `deburner`, valid selected users and more than 400 GB free for `/srv`; conditionally check mirror capacity, KVM and profile-specific Android, GitLab and container-registry services alongside baseline Internet endpoints | Stop the umbrella playbook before system changes when the target or selected profiles cannot be provisioned successfully |
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |

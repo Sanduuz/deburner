@@ -50,6 +50,13 @@ traffic or files.
   make validate-config
   ```
 
+- [ ] Run the profile-aware host and network checks. Confirm that the reported
+      desktop user and optional profiles match the intended configuration:
+
+  ```sh
+  make preflight
+  ```
+
 ## 3. Configure this event
 
 - [ ] Set `customization_user` when the desktop account is not the UID 1000

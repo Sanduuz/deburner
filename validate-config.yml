@@ -154,7 +154,7 @@
           - configuration_effective.tooling_crypto_sagemath_install_timeout is integer
           - configuration_effective.tooling_crypto_sagemath_install_timeout >= 3600
           - configuration_effective.tooling_bloodhound_install_timeout is integer
-          - configuration_effective.tooling_bloodhound_install_timeout >= 300
+          - configuration_effective.tooling_bloodhound_install_timeout >= 600
           - configuration_effective.offline_mirror_sync_timeout is integer
           - configuration_effective.offline_mirror_sync_timeout >= 3600
         fail_msg: One or more optional feature timeouts are invalid or too short.

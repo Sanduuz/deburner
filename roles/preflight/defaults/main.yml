@@ -33,3 +33,39 @@ preflight_required_endpoints:
   - name: conda-forge SageMath metadata
     url: https://api.anaconda.org/package/conda-forge/sage
     marker: '"name": "sage"'
+
+preflight_android_endpoints:
+  - name: Android Studio release service
+    url: https://developer.android.com/studio
+    marker: Android Studio
+  - name: Android SDK package repository
+    url: https://dl.google.com/android/repository/repository2-1.xml
+    marker: sdk-repository
+  - name: rootAVD GitLab API
+    url: https://gitlab.com/api/v4/projects/newbit%2FrootAVD/repository/branches/master
+    marker: '"commit"'
+
+preflight_offline_mirror_endpoints:
+  - name: Debian security package repository
+    url: https://security.debian.org/debian-security/dists/trixie-security/InRelease
+    marker: 'Codename: trixie-security'
+
+preflight_docker_hub_endpoints:
+  - name: Docker Hub container registry
+    url: https://registry-1.docker.io/v2/
+    status_codes:
+      - 401
+    marker: UNAUTHORIZED
+  - name: Docker Hub registry authentication
+    url: https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/nginx:pull
+    marker: '"token"'
+
+preflight_ghcr_endpoints:
+  - name: GitHub container registry
+    url: https://ghcr.io/v2/
+    status_codes:
+      - 401
+    marker: UNAUTHORIZED
+  - name: GitHub container registry authentication
+    url: https://ghcr.io/token?scope=repository:shell-dot/tuoni/server:pull&service=ghcr.io
+    marker: '"token"'

@@ -26,7 +26,110 @@
       - preflight_minimum_free_bytes | int > 0
       - preflight_required_endpoints | type_debug == 'list'
       - preflight_required_endpoints | length > 0
-    fail_msg: Review the preflight variables; one or more values are invalid.
+      - preflight_android_endpoints | type_debug == 'list'
+      - preflight_offline_mirror_endpoints | type_debug == 'list'
+      - preflight_docker_hub_endpoints | type_debug == 'list'
+      - preflight_ghcr_endpoints | type_debug == 'list'
+      - customization_user | default('') is string
+      - docker_group_users | default([]) | type_debug == 'list'
+      - tooling_mobile_android_studio_enabled | default(false) | type_debug == 'bool'
+      - tooling_bloodhound_enabled | default(false) | type_debug == 'bool'
+      - offline_mirror_enabled | default(false) | type_debug == 'bool'
+      - tooling_c2_tuoni_stage_images | default(true) | type_debug == 'bool'
+    fail_msg: Review the preflight and selected-profile variables in local.yml.
+
+- name: Record the selected profiles and desktop account
+  ansible.builtin.set_fact:
+    preflight_desktop_user_key: >-
+      {{ customization_user
+         if (customization_user | default('') | length > 0)
+         else '1000' }}
+    preflight_docker_group_users: "{{ docker_group_users | default([]) }}"
+    preflight_android_enabled: >-
+      {{ tooling_mobile_android_studio_enabled | default(false) | bool }}
+    preflight_bloodhound_enabled: >-
+      {{ tooling_bloodhound_enabled | default(false) | bool }}
+    preflight_offline_mirror_enabled: >-
+      {{ offline_mirror_enabled | default(false) | bool }}
+    preflight_tuoni_images_enabled: >-
+      {{ tooling_c2_tuoni_stage_images | default(true) | bool }}
+
+- name: Resolve the selected desktop account
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - passwd
+      - "{{ preflight_desktop_user_key }}"
+  register: preflight_desktop_passwd
+  changed_when: false
+  failed_when: false
+
+- name: Require a valid non-root desktop account
+  ansible.builtin.assert:
+    that:
+      - preflight_desktop_passwd.rc == 0
+      - preflight_desktop_passwd.stdout_lines | length == 1
+      - preflight_desktop_passwd.stdout.split(':') | length == 7
+      - preflight_desktop_passwd.stdout.split(':')[0] != 'root'
+      - preflight_desktop_passwd.stdout.split(':')[2] | int >= 1000
+      - preflight_desktop_passwd.stdout.split(':')[5] is match('^/home/[^/]+$')
+    fail_msg: >-
+      The desktop account could not be resolved safely. Set customization_user
+      in local.yml to the intended existing non-root account.
+
+- name: Record the resolved desktop account
+  ansible.builtin.set_fact:
+    preflight_desktop_user: "{{ preflight_desktop_passwd.stdout.split(':')[0] }}"
+
+- name: Resolve requested Docker group users
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - passwd
+      - "{{ item }}"
+  loop: "{{ preflight_docker_group_users }}"
+  register: preflight_docker_passwd
+  changed_when: false
+  failed_when: false
+
+- name: Require every Docker group user to exist
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout_lines | length == 1
+      - item.stdout.split(':')[0] == item.item
+      - item.stdout.split(':')[0] != 'root'
+    fail_msg: "Docker group user {{ item.item }} does not resolve to a valid non-root account."
+  loop: "{{ preflight_docker_passwd.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inspect KVM when the Android Studio profile is enabled
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: preflight_kvm
+  when: preflight_android_enabled
+
+- name: Require hardware virtualization for Android emulation
+  ansible.builtin.assert:
+    that:
+      - preflight_kvm.stat.exists
+      - preflight_kvm.stat.ischr | default(false)
+    fail_msg: >-
+      Android Studio is enabled, but /dev/kvm is not a character device. Enable
+      hardware virtualization in the system firmware and load KVM before provisioning.
+  when: preflight_android_enabled
+
+- name: Select endpoints required by the enabled profiles
+  ansible.builtin.set_fact:
+    preflight_effective_endpoints: >-
+      {{ preflight_required_endpoints
+         + (preflight_android_endpoints if preflight_android_enabled else [])
+         + (preflight_offline_mirror_endpoints
+            if preflight_offline_mirror_enabled else [])
+         + (preflight_docker_hub_endpoints
+            if (preflight_bloodhound_enabled or preflight_tuoni_images_enabled) else [])
+         + (preflight_ghcr_endpoints if preflight_tuoni_images_enabled else []) }}
 
 - name: Validate required endpoint definitions
   ansible.builtin.assert:
@@ -36,8 +139,12 @@
       - item.url is match('^https://')
       - item.marker is string
       - item.marker | length > 0
+      - item.status_codes | default([200]) | type_debug == 'list'
+      - item.status_codes | default([200]) | length > 0
+      - item.status_codes | default([200]) | select('integer') | list | length
+        == item.status_codes | default([200]) | length
     fail_msg: Every preflight endpoint needs a name, an HTTPS URL and a response marker.
-  loop: "{{ preflight_required_endpoints }}"
+  loop: "{{ preflight_effective_endpoints }}"
   loop_control:
     label: "{{ item.name | default('unnamed endpoint') }}"
 
@@ -79,6 +186,44 @@
       The filesystem containing {{ preflight_storage_path }} has
       {{ ((preflight_available_bytes | int) / 1000000000) | round(1) }} GB free.
 
+- name: Read offline mirror filesystem space
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/df
+      - --block-size=1
+      - --output=avail
+      - /srv
+  register: preflight_mirror_disk_space
+  changed_when: false
+  when: preflight_offline_mirror_enabled
+
+- name: Require capacity for the enabled offline mirror
+  ansible.builtin.assert:
+    that:
+      - (preflight_mirror_disk_space.stdout_lines[-1] | trim | int)
+        > (offline_mirror_minimum_free_bytes | default(400000000000) | int)
+    fail_msg: >-
+      The offline mirror is enabled, but the filesystem containing /srv has only
+      {{ ((preflight_mirror_disk_space.stdout_lines[-1] | trim | int)
+          / 1000000000) | round(1) }} GB free; more than
+      {{ ((offline_mirror_minimum_free_bytes | default(400000000000) | int)
+          / 1000000000) | round(1) }} GB is required for
+      {{ offline_mirror_root | default('/srv/deburner/mirror') }}.
+    success_msg: >-
+      The enabled offline mirror at
+      {{ offline_mirror_root | default('/srv/deburner/mirror') }} has sufficient
+      space on the filesystem containing /srv.
+  when: preflight_offline_mirror_enabled
+
+- name: Report the selected provisioning profile
+  ansible.builtin.debug:
+    msg: >-
+      Desktop user={{ preflight_desktop_user }};
+      BloodHound={{ preflight_bloodhound_enabled }};
+      Android Studio={{ preflight_android_enabled }};
+      offline mirror={{ preflight_offline_mirror_enabled }};
+      Tuoni image staging={{ preflight_tuoni_images_enabled }}.
+
 - name: Verify required provisioning endpoints
   ansible.builtin.uri:
     url: "{{ item.url }}"
@@ -87,13 +232,14 @@
     follow_redirects: safe
     validate_certs: true
     timeout: "{{ preflight_network_timeout }}"
-    status_code: 200
+    status_code: "{{ item.status_codes | default([200]) }}"
     http_agent: deburner-ansible-preflight
   register: preflight_endpoint_result
   failed_when: >-
-    (preflight_endpoint_result.status | default(0) != 200) or
+    (preflight_endpoint_result.status | default(0)
+     not in (item.status_codes | default([200]))) or
     (item.marker not in (preflight_endpoint_result.content | default('')))
   changed_when: false
-  loop: "{{ preflight_required_endpoints }}"
+  loop: "{{ preflight_effective_endpoints }}"
   loop_control:
     label: "{{ item.name }}"
