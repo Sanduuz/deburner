@@ -181,8 +181,9 @@ APT can later be switched between the two source sets with
       it.
 - [ ] Review Docker port publishing separately. Published container ports pass
       through forwarding and are not protected by the host input firewall.
-- [ ] Remove personal secrets, account sessions, tokens, SSH keys, and unrelated
-      removable media. Avoid signing in to personal services from the burner.
+- [ ] Remove personal secrets, account sessions, tokens, reused SSH keys, and
+      unrelated removable media. Use the generated burner-only Ed25519 identity
+      instead of copying a personal key. Avoid signing in to personal services.
 - [ ] Keep the burner away from trusted home, office, and personal-device
       networks after it joins the event environment.
 

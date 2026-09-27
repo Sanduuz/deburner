@@ -12,6 +12,7 @@ customization_packages:
   - file
   - fzf
   - gnome-terminal
+  - openssh-client
   - ripgrep
   - sudo
   - tree

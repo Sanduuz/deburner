@@ -450,6 +450,12 @@ panels, language behavior, and compiler integrations. Rust Analyzer comes from
 the shared upstream stable Rust toolchain at `/usr/local/bin/rust-analyzer`, so
 the settings do not contain a machine-specific home-directory path.
 
+The role generates a fresh Ed25519 client identity at `~/.ssh/id_ed25519` with
+an empty passphrase. A fresh Debian installation therefore gets a new burner-only
+key pair; an initial-provisioning rerun preserves the existing key instead of
+rotating it. The private key uses mode `0600`, must not be copied from a personal
+machine, and is destroyed with the rest of the disk after the event.
+
 The role also creates `~/.ssh/cm_socket` and a managed block in `~/.ssh/config`
 that enables SSH client connection multiplexing and a 60-second server-alive
 interval. This does not enable the incoming SSH server, which remains masked by
@@ -1078,7 +1084,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Android tooling | Install Android device, APK inspection, signing, decompilation and instrumentation clients; optionally install current Android Studio, SDK, emulator, an unrooted newest-stable AVD, and a rootAVD/Magisk-patched Android 14 AVD | Support static and dynamic Android challenge analysis while keeping the large development and emulation profile configuration-gated |
 | Web tooling | Install current ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial and Burp Suite Community releases without configuring an account or license | Cover web fuzzing, discovery, injection, TLS, token and Java deserialization work through system-wide commands and an interactive proxy |
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
-| Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults |
+| Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, a fresh unencrypted Ed25519 identity, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults and a burner-only SSH identity |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
 | Orchestration | Add `deburner.yml`, logged Makefile operator targets and automatic `local.yml` loading | Stream and retain output while running the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, inventory generation, preflight and verification workflows |

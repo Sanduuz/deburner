@@ -346,6 +346,62 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Inspect the generated SSH identity files
+  ansible.builtin.stat:
+    path: "{{ verification_home }}/.ssh/{{ item }}"
+  loop:
+    - id_ed25519
+    - id_ed25519.pub
+  register: verification_ssh_identity_files
+
+- name: Require protected SSH identity permissions
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.pw_name == verification_user
+      - item.stat.mode == ('0600' if item.item == 'id_ed25519' else '0644')
+    fail_msg: "SSH identity file has unexpected ownership or permissions: {{ item.item }}"
+  loop: "{{ verification_ssh_identity_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Derive the generated SSH public key without a passphrase
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ verification_user }}"
+      - --
+      - ssh-keygen
+      - -y
+      - -P
+      - ''
+      - -f
+      - "{{ verification_home }}/.ssh/id_ed25519"
+  register: verification_ssh_derived_public_key
+  changed_when: false
+
+- name: Read the installed SSH public key
+  ansible.builtin.slurp:
+    src: "{{ verification_home }}/.ssh/id_ed25519.pub"
+  register: verification_ssh_public_key_file
+
+- name: Require a matching Ed25519 public key
+  ansible.builtin.assert:
+    that:
+      - verification_ssh_derived_public_key.stdout.split() | length == 2
+      - (verification_ssh_public_key_file.content | b64decode).split() | length == 3
+      - verification_ssh_derived_public_key.stdout.split()[0] == 'ssh-ed25519'
+      - (verification_ssh_public_key_file.content | b64decode).split()[0] == 'ssh-ed25519'
+      - >-
+        verification_ssh_derived_public_key.stdout.split()[1]
+        == (verification_ssh_public_key_file.content | b64decode).split()[1]
+      - >-
+        (verification_ssh_public_key_file.content | b64decode).split()[2]
+        == verification_user + '@deburner'
+    fail_msg: The generated SSH identity is not an unencrypted matching Ed25519 key pair.
+
 - name: Read desktop user groups
   ansible.builtin.command:
     argv:

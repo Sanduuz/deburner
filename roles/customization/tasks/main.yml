@@ -254,6 +254,23 @@
     group: "{{ customization_effective_group }}"
     mode: '0600'
 
+- name: Create the SSH configuration directory
+  ansible.builtin.file:
+    path: "{{ customization_effective_home }}/.ssh"
+    state: directory
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0700'
+
+- name: Generate the burner SSH identity
+  ansible.builtin.user:
+    name: "{{ customization_effective_user }}"
+    generate_ssh_key: true
+    ssh_key_type: ed25519
+    ssh_key_file: .ssh/id_ed25519
+    ssh_key_passphrase: ''
+    ssh_key_comment: "{{ customization_effective_user }}@deburner"
+
 - name: Create the SSH multiplexing socket directory
   ansible.builtin.file:
     path: "{{ customization_effective_home }}/.ssh/cm_socket"

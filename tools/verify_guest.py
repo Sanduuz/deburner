@@ -141,6 +141,23 @@ def verify_customization() -> None:
     file_exists("/home/debian/bin/fzf-preview.sh", executable=True)
     file_exists("/home/debian/.config/zed/settings.json")
     file_exists("/home/debian/.ssh/config")
+    file_exists("/home/debian/.ssh/id_ed25519")
+    file_exists("/home/debian/.ssh/id_ed25519.pub")
+    command_succeeds(
+        [
+            "runuser",
+            "-u",
+            "debian",
+            "--",
+            "ssh-keygen",
+            "-y",
+            "-P",
+            "",
+            "-f",
+            "/home/debian/.ssh/id_ed25519",
+        ],
+        "burner Ed25519 SSH identity is readable without a passphrase",
+    )
     record(Path("/home/debian/.ssh/cm_socket").is_dir(), "SSH multiplexing directory exists")
     command_succeeds(["bash", "-n", "/home/debian/.bashrc"], "Bash configuration is valid")
     command_succeeds(["bash", "-n", "/home/debian/.bash_aliases"], "Bash aliases are valid")
