@@ -33,7 +33,7 @@ TEST_VM_COMMAND = $(PYTHON) tools/test_vm.py \
 	--vcpus "$(TEST_VM_VCPUS)" \
 	--disk-gib "$(TEST_VM_DISK_GIB)"
 
-.PHONY: provision validate-config preflight verify mirror-sync mirror-enable manifest test-config \
+.PHONY: provision validate-config preflight verify screen-sharing mirror-sync mirror-enable manifest test-config \
 	setup check check-whitespace check-yaml check-ansible-lint check-python check-syntax test \
 	test-android test-bloodhound \
 	test-prerequisites test-image test-image-status test-image-purge test-create test-start test-stop \
@@ -52,6 +52,9 @@ preflight: validate-config
 
 verify: validate-config
 	$(OPERATOR_RUN) --label verify -- $(ANSIBLE_PLAYBOOK) verify.yml
+
+screen-sharing: validate-config
+	$(OPERATOR_RUN) --label screen-sharing -- $(ANSIBLE_PLAYBOOK) screen-sharing.yml --ask-become-pass
 
 mirror-sync: validate-config
 	$(OPERATOR_RUN) --label mirror-sync -- $(ANSIBLE_PLAYBOOK) mirror-sync.yml --ask-become-pass

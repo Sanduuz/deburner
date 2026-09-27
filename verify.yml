@@ -27,6 +27,11 @@
         file: roles/tooling_mobile/defaults/main.yml
         name: verification_mobile_defaults
 
+    - name: Load the screen-sharing defaults for verification
+      ansible.builtin.include_vars:
+        file: roles/screen_sharing/defaults/main.yml
+        name: verification_screen_sharing_defaults
+
     - name: Require the supported local Debian baseline
       ansible.builtin.assert:
         that:

@@ -1,0 +1,557 @@
+---
+- name: Validate screen-sharing configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - screen_sharing_enabled | type_debug == 'bool'
+      - screen_sharing_vnc_port is integer
+      - screen_sharing_vnc_port >= 1
+      - screen_sharing_vnc_port <= 65535
+      - screen_sharing_view_only | type_debug == 'bool'
+      - screen_sharing_build_timeout is integer
+      - screen_sharing_build_timeout >= 600
+      - screen_sharing_password_file == '/var/lib/deburner/vnc-password'
+      - screen_sharing_build_root == '/var/cache/deburner-build/gnome-remote-desktop'
+      - screen_sharing_artifact_root == '/var/cache/deburner/gnome-remote-desktop-vnc'
+      - screen_sharing_local_version_suffix is match('^\+deburner[0-9]+$')
+      - screen_sharing_build_packages | type_debug == 'list'
+      - screen_sharing_build_packages | length > 0
+      - screen_sharing_build_packages
+        | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length
+        == screen_sharing_build_packages | length
+    fail_msg: Review the optional screen-sharing variables in local.yml.
+
+- name: Explain that GNOME VNC screen sharing is disabled
+  ansible.builtin.debug:
+    msg: >-
+      GNOME Wayland VNC screen sharing is disabled. Set screen_sharing_enabled:
+      true and explicitly allow its TCP port in hardening_allowed_tcp_ports to
+      build and configure it.
+  when: not screen_sharing_enabled | bool
+
+- name: Configure GNOME Wayland VNC screen sharing
+  when: screen_sharing_enabled | bool
+  block:
+    - name: Require an explicit host firewall exception for VNC
+      ansible.builtin.assert:
+        that:
+          - screen_sharing_vnc_port in hardening_allowed_tcp_ports
+        fail_msg: >-
+          VNC is enabled on TCP port {{ screen_sharing_vnc_port }}, but that port
+          is absent from hardening_allowed_tcp_ports. Add it explicitly and
+          review the event network exposure before provisioning.
+
+    - name: Resolve the GNOME desktop user
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ customization_user if customization_user | length > 0 else '1000' }}"
+      register: screen_sharing_passwd
+      changed_when: false
+      failed_when: false
+
+    - name: Require a valid GNOME desktop user
+      ansible.builtin.assert:
+        that:
+          - screen_sharing_passwd.rc == 0
+          - screen_sharing_passwd.stdout_lines | length == 1
+          - screen_sharing_passwd.stdout.split(':') | length == 7
+          - screen_sharing_passwd.stdout.split(':')[0] != 'root'
+          - screen_sharing_passwd.stdout.split(':')[2] | int >= 1000
+          - screen_sharing_passwd.stdout.split(':')[5] is match('^/home/[^/]+$')
+        fail_msg: Set customization_user to the logged-in GNOME desktop account.
+
+    - name: Record the GNOME desktop session details
+      ansible.builtin.set_fact:
+        screen_sharing_user: "{{ screen_sharing_passwd.stdout.split(':')[0] }}"
+        screen_sharing_uid: "{{ screen_sharing_passwd.stdout.split(':')[2] }}"
+        screen_sharing_home: "{{ screen_sharing_passwd.stdout.split(':')[5] }}"
+        screen_sharing_runtime_dir: "/run/user/{{ screen_sharing_passwd.stdout.split(':')[2] }}"
+
+    - name: Inspect the GNOME session bus
+      ansible.builtin.stat:
+        path: "{{ screen_sharing_runtime_dir }}/bus"
+      register: screen_sharing_session_bus
+
+    - name: Require an active graphical user session
+      ansible.builtin.assert:
+        that:
+          - screen_sharing_session_bus.stat.exists
+          - screen_sharing_session_bus.stat.issock | default(false)
+        fail_msg: >-
+          VNC credentials must be stored in the logged-in user's GNOME keyring.
+          Log in to GNOME as {{ screen_sharing_user }} and rerun the playbook from
+          that desktop session.
+
+    - name: Check whether grdctl already includes the VNC backend
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - --help
+      register: screen_sharing_grdctl_before
+      changed_when: false
+      failed_when: false
+
+    - name: Read the installed GNOME Remote Desktop version before building
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - --show
+          - --showformat=${Version}
+          - gnome-remote-desktop
+      register: screen_sharing_version_before
+      changed_when: false
+      failed_when: false
+
+    - name: Build the Debian package with VNC enabled
+      when: >-
+        screen_sharing_grdctl_before.rc != 0
+        or 'vnc' not in screen_sharing_grdctl_before.stdout
+        or screen_sharing_local_version_suffix not in screen_sharing_version_before.stdout
+      block:
+        - name: Enable the Debian source repository for the package build
+          ansible.builtin.copy:
+            dest: /etc/apt/sources.list.d/deburner-gnome-remote-desktop-build.sources
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              Types: deb-src
+              URIs: https://deb.debian.org/debian
+              Suites: trixie
+              Components: main
+              Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+        - name: Install explicit package-build dependencies
+          ansible.builtin.apt:
+            name: "{{ screen_sharing_build_packages }}"
+            state: present
+            update_cache: true
+
+        - name: Install the Debian package build dependencies
+          ansible.builtin.apt:
+            name: gnome-remote-desktop
+            state: build-dep
+
+        - name: Create the isolated package-build account
+          ansible.builtin.user:
+            name: deburner-builder
+            system: true
+            create_home: false
+            home: /nonexistent
+            shell: /usr/sbin/nologin
+
+        - name: Reset the package-build workspace
+          ansible.builtin.file:
+            path: "{{ screen_sharing_build_root }}"
+            state: absent
+
+        - name: Create the package-build workspace
+          ansible.builtin.file:
+            path: "{{ screen_sharing_build_root }}"
+            state: directory
+            owner: deburner-builder
+            group: deburner-builder
+            mode: '0750'
+
+        - name: Download and unpack the current Debian source package
+          become: true
+          become_user: deburner-builder
+          ansible.builtin.command:
+            argv:
+              - apt-get
+              - source
+              - gnome-remote-desktop
+            chdir: "{{ screen_sharing_build_root }}"
+          environment:
+            HOME: "{{ screen_sharing_build_root }}"
+          changed_when: true
+
+        - name: Find the unpacked GNOME Remote Desktop source
+          ansible.builtin.find:
+            paths: "{{ screen_sharing_build_root }}"
+            patterns: gnome-remote-desktop-*
+            file_type: directory
+            recurse: false
+          register: screen_sharing_source_directories
+
+        - name: Require exactly one unpacked source directory
+          ansible.builtin.assert:
+            that:
+              - screen_sharing_source_directories.matched == 1
+            fail_msg: The Debian source package did not create one recognizable source directory.
+
+        - name: Record the source directory
+          ansible.builtin.set_fact:
+            screen_sharing_source_directory: >-
+              {{ screen_sharing_source_directories.files[0].path }}
+
+        - name: Read the Debian packaging files before patching
+          ansible.builtin.slurp:
+            src: "{{ screen_sharing_source_directory }}/{{ item }}"
+          loop:
+            - debian/control
+            - debian/rules
+          register: screen_sharing_packaging_files
+
+        - name: Require the expected Debian packaging structure
+          ansible.builtin.assert:
+            that:
+              - >-
+                screen_sharing_packaging_files.results[0].content | b64decode
+                is search('(?m)^               libva-dev,$')
+              - >-
+                screen_sharing_packaging_files.results[1].content | b64decode
+                is search('(?m)^\t\t-Dfdk_aac=false \\$')
+            fail_msg: >-
+              Debian's GNOME Remote Desktop packaging changed. Review the
+              current source before updating the minimal VNC build delta.
+
+        - name: Add LibVNCServer to the Debian build dependencies
+          ansible.builtin.lineinfile:
+            path: "{{ screen_sharing_source_directory }}/debian/control"
+            insertafter: '^\s+libva-dev,'
+            line: '               libvncserver-dev,'
+            owner: deburner-builder
+            group: deburner-builder
+            mode: '0644'
+
+        - name: Enable the Meson VNC backend in the Debian build
+          ansible.builtin.lineinfile:
+            path: "{{ screen_sharing_source_directory }}/debian/rules"
+            insertafter: '^\s+-Dfdk_aac=false \\'
+            line: "\t\t-Dvnc=true \\"
+            owner: deburner-builder
+            group: deburner-builder
+            mode: '0755'
+
+        - name: Read the Debian source version
+          become: true
+          become_user: deburner-builder
+          ansible.builtin.command:
+            argv:
+              - dpkg-parsechangelog
+              - --show-field
+              - Version
+            chdir: "{{ screen_sharing_source_directory }}"
+          register: screen_sharing_source_version
+          changed_when: false
+
+        - name: Add the local package version and changelog entry
+          become: true
+          become_user: deburner-builder
+          ansible.builtin.command:
+            argv:
+              - dch
+              - --newversion
+              - "{{ screen_sharing_source_version.stdout | trim }}{{ screen_sharing_local_version_suffix }}"
+              - --distribution
+              - trixie
+              - Enable the GNOME Remote Desktop VNC backend for deburner.
+            chdir: "{{ screen_sharing_source_directory }}"
+          environment:
+            DEBFULLNAME: deburner package builder
+            DEBEMAIL: root@localhost
+            HOME: "{{ screen_sharing_build_root }}"
+          changed_when: true
+
+        - name: Build the local binary package
+          become: true
+          become_user: deburner-builder
+          ansible.builtin.command:
+            argv:
+              - dpkg-buildpackage
+              - --build=binary
+              - --unsigned-buildinfo
+              - --unsigned-changes
+          args:
+            chdir: "{{ screen_sharing_source_directory }}"
+          environment:
+            HOME: "{{ screen_sharing_build_root }}"
+          async: "{{ screen_sharing_build_timeout }}"
+          poll: 10
+          register: screen_sharing_package_build
+          changed_when: true
+
+        - name: Find the locally built package
+          ansible.builtin.find:
+            paths: "{{ screen_sharing_build_root }}"
+            patterns: gnome-remote-desktop_*_amd64.deb
+            file_type: file
+            recurse: false
+          register: screen_sharing_built_packages
+
+        - name: Require exactly one locally built package
+          ansible.builtin.assert:
+            that:
+              - screen_sharing_built_packages.matched == 1
+            fail_msg: The build did not produce one GNOME Remote Desktop amd64 package.
+
+        - name: Create the local package artifact directory
+          ansible.builtin.file:
+            path: "{{ screen_sharing_artifact_root }}"
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
+
+        - name: Preserve the locally built package
+          ansible.builtin.copy:
+            src: "{{ screen_sharing_built_packages.files[0].path }}"
+            dest: >-
+              {{ screen_sharing_artifact_root
+                 ~ '/' ~ (screen_sharing_built_packages.files[0].path | basename) }}
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0644'
+          register: screen_sharing_local_package
+
+        - name: Install the VNC-enabled GNOME Remote Desktop package
+          ansible.builtin.apt:
+            deb: "{{ screen_sharing_local_package.dest }}"
+            state: present
+
+        - name: Hold the locally modified package
+          ansible.builtin.dpkg_selections:
+            name: gnome-remote-desktop
+            selection: hold
+
+        - name: Remove the package-build workspace
+          ansible.builtin.file:
+            path: "{{ screen_sharing_build_root }}"
+            state: absent
+
+        - name: Remove the package-build account
+          ansible.builtin.user:
+            name: deburner-builder
+            state: absent
+
+        - name: Remove the temporary Debian source definition
+          ansible.builtin.file:
+            path: /etc/apt/sources.list.d/deburner-gnome-remote-desktop-build.sources
+            state: absent
+
+    - name: Read the installed GNOME Remote Desktop package version
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - --show
+          - --showformat=${Version}
+          - gnome-remote-desktop
+      register: screen_sharing_installed_version
+      changed_when: false
+
+    - name: Verify that grdctl includes VNC commands
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - --help
+      register: screen_sharing_grdctl_help
+      changed_when: false
+      failed_when: "'vnc' not in screen_sharing_grdctl_help.stdout"
+
+    - name: Require the locally versioned package
+      ansible.builtin.assert:
+        that:
+          - screen_sharing_local_version_suffix in screen_sharing_installed_version.stdout
+        fail_msg: The installed GNOME Remote Desktop package is not the managed VNC build.
+
+    - name: Read held package selections
+      ansible.builtin.command:
+        argv:
+          - apt-mark
+          - showhold
+      register: screen_sharing_held_packages
+      changed_when: false
+
+    - name: Require the local package hold
+      ansible.builtin.assert:
+        that:
+          - "'gnome-remote-desktop' in screen_sharing_held_packages.stdout_lines"
+        fail_msg: The locally modified GNOME Remote Desktop package is not held.
+
+    - name: Inspect the generated VNC password
+      ansible.builtin.stat:
+        path: "{{ screen_sharing_password_file }}"
+      register: screen_sharing_password_state
+
+    - name: Create the private deburner state directory
+      ansible.builtin.file:
+        path: "{{ screen_sharing_password_file | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Generate the initial VNC password
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import secrets;
+            alphabet='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+            print(''.join(secrets.choice(alphabet) for _ in range(8)))
+      register: screen_sharing_generated_password
+      changed_when: true
+      no_log: true
+      when: not screen_sharing_password_state.stat.exists
+
+    - name: Store the generated VNC password for the operator
+      ansible.builtin.copy:
+        dest: "{{ screen_sharing_password_file }}"
+        content: "{{ screen_sharing_generated_password.stdout }}\n"
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+      when: not screen_sharing_password_state.stat.exists
+
+    - name: Read the managed VNC password
+      ansible.builtin.slurp:
+        src: "{{ screen_sharing_password_file }}"
+      register: screen_sharing_password_file_content
+      no_log: true
+
+    - name: Configure the VNC port
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - vnc
+          - set-port
+          - "{{ screen_sharing_vnc_port }}"
+      environment: &screen_sharing_session_environment
+        HOME: "{{ screen_sharing_home }}"
+        XDG_RUNTIME_DIR: "{{ screen_sharing_runtime_dir }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path={{ screen_sharing_runtime_dir }}/bus"
+      changed_when: false
+
+    - name: Configure password authentication
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - vnc
+          - set-auth-method
+          - password
+      environment: *screen_sharing_session_environment
+      changed_when: false
+
+    - name: Store the VNC password in the GNOME keyring
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - vnc
+          - set-password
+        stdin: "{{ screen_sharing_password_file_content.content | b64decode | trim }}\n"
+      environment: *screen_sharing_session_environment
+      changed_when: false
+      no_log: true
+
+    - name: Configure VNC input access
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - vnc
+          - "{{ 'enable-view-only' if screen_sharing_view_only else 'disable-view-only' }}"
+      environment: *screen_sharing_session_environment
+      changed_when: false
+
+    - name: Disable automatic VNC port negotiation
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - vnc
+          - disable-port-negotiation
+      environment: *screen_sharing_session_environment
+      changed_when: false
+
+    - name: Enable the VNC backend
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - vnc
+          - enable
+      environment: *screen_sharing_session_environment
+      changed_when: false
+
+    - name: Enable and start GNOME Remote Desktop for the user session
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.systemd_service:
+        name: gnome-remote-desktop.service
+        scope: user
+        enabled: true
+        state: started
+      environment: *screen_sharing_session_environment
+
+    - name: Read the configured GNOME Remote Desktop status
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - grdctl
+          - status
+      environment: *screen_sharing_session_environment
+      register: screen_sharing_status
+      changed_when: false
+
+    - name: Require the expected VNC configuration
+      ansible.builtin.assert:
+        that:
+          - "'VNC:' in screen_sharing_status.stdout"
+          - "'Status: enabled' in screen_sharing_status.stdout"
+          - "('Port: ' ~ screen_sharing_vnc_port) in screen_sharing_status.stdout"
+          - "'Auth method: password' in screen_sharing_status.stdout"
+          - >-
+            ('View-only: ' ~ ('yes' if screen_sharing_view_only else 'no'))
+            in screen_sharing_status.stdout
+          - "'Negotiate port: no' in screen_sharing_status.stdout"
+          - "'Password: (hidden)' in screen_sharing_status.stdout"
+        fail_msg: grdctl did not report the requested VNC screen-sharing configuration.
+
+    - name: Read the configured VNC listening socket
+      ansible.builtin.command:
+        argv:
+          - ss
+          - --listening
+          - --tcp
+          - --numeric
+          - "sport = :{{ screen_sharing_vnc_port }}"
+      register: screen_sharing_listener
+      changed_when: false
+      until: screen_sharing_listener.stdout_lines | length > 1
+      retries: 10
+      delay: 1
+
+    - name: Require the VNC listener
+      ansible.builtin.assert:
+        that:
+          - screen_sharing_listener.stdout_lines | length > 1
+        fail_msg: >-
+          GNOME Remote Desktop is not listening on TCP port
+          {{ screen_sharing_vnc_port }}. Check the user service and journal.
+
+    - name: Report the VNC connection details
+      ansible.builtin.debug:
+        msg: >-
+          GNOME Wayland VNC screen sharing is enabled on TCP port
+          {{ screen_sharing_vnc_port }} for the active {{ screen_sharing_user }}
+          session using GNOME Remote Desktop
+          {{ screen_sharing_installed_version.stdout | trim }}. Read the generated password with
+          'sudo cat {{ screen_sharing_password_file }}'.

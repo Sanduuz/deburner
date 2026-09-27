@@ -90,6 +90,8 @@
         - tooling_bloodhound_enabled
         - tooling_mobile_android_studio_enabled
         - tooling_mobile_android_licenses_accepted
+        - screen_sharing_enabled
+        - screen_sharing_view_only
         - offline_mirror_enabled
         - offline_mirror_include_sources
         - offline_mirror_include_contents
@@ -155,9 +157,25 @@
           - configuration_effective.tooling_crypto_sagemath_install_timeout >= 3600
           - configuration_effective.tooling_bloodhound_install_timeout is integer
           - configuration_effective.tooling_bloodhound_install_timeout >= 600
+          - configuration_effective.screen_sharing_build_timeout is integer
+          - configuration_effective.screen_sharing_build_timeout >= 600
           - configuration_effective.offline_mirror_sync_timeout is integer
           - configuration_effective.offline_mirror_sync_timeout >= 3600
         fail_msg: One or more optional feature timeouts are invalid or too short.
+
+    - name: Validate screen-sharing configuration
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.screen_sharing_vnc_port is integer
+          - configuration_effective.screen_sharing_vnc_port >= 1
+          - configuration_effective.screen_sharing_vnc_port <= 65535
+          - >-
+            not configuration_effective.screen_sharing_enabled
+            or configuration_effective.screen_sharing_vnc_port
+               in configuration_effective.hardening_allowed_tcp_ports
+        fail_msg: >-
+          VNC screen sharing needs a valid TCP port that is explicitly included
+          in hardening_allowed_tcp_ports when screen_sharing_enabled is true.
 
     - name: Require Android license acceptance when Android Studio is enabled
       ansible.builtin.assert:
@@ -203,4 +221,5 @@
           Configuration from {{ configuration_source | basename }} is valid.
           BloodHound={{ configuration_effective.tooling_bloodhound_enabled }},
           Android Studio={{ configuration_effective.tooling_mobile_android_studio_enabled }},
+          VNC screen sharing={{ configuration_effective.screen_sharing_enabled }},
           offline mirror={{ configuration_effective.offline_mirror_enabled }}.

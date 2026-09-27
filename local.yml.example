@@ -66,6 +66,15 @@ tooling_mobile_android_licenses_accepted: false
 # 1000. Set the account name explicitly if the desktop user has another UID.
 customization_user: ''
 
+# Optional VNC sharing of the active GNOME Wayland session. Debian builds GNOME
+# Remote Desktop without VNC, so enabling this rebuilds its current Debian source
+# package with LibVNCServer support. Explicitly add the same TCP port to
+# hardening_allowed_tcp_ports after reviewing the event network exposure.
+screen_sharing_enabled: false
+screen_sharing_vnc_port: 5900
+screen_sharing_view_only: true
+screen_sharing_build_timeout: 3600
+
 # Optional local Debian package mirror. The initial sync can run for hours and
 # requires the machine to remain powered on with Internet access.
 offline_mirror_enabled: false

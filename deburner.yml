@@ -64,6 +64,9 @@
 - name: Apply user and desktop customizations
   ansible.builtin.import_playbook: customization.yml
 
+- name: Configure optional GNOME Wayland VNC screen sharing
+  ansible.builtin.import_playbook: screen-sharing.yml
+
 - name: Synchronize the optional offline Debian mirror
   ansible.builtin.import_playbook: mirror-sync.yml
 

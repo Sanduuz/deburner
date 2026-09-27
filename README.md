@@ -59,8 +59,8 @@ Ansible output may contain machine-specific information.
 playbooks in dependency order: hardening, core, network, wireless, pivoting, analysis,
 Crypto/CTF, steganography/media, Windows/Active Directory and desktop tooling, exploitation tooling,
 reverse-engineering tooling, Android tooling, web tooling, SecLists, Docker, C2 tooling, optional
-BloodHound staging, user and desktop customizations, and the optional
-offline-mirror sync. It then writes a provisioning manifest describing the
+BloodHound staging, user and desktop customizations, and the optional GNOME
+Wayland VNC setup and offline-mirror sync. It then writes a provisioning manifest describing the
 resulting installation. Optional features remain disabled unless selected in
 `local.yml`. All tasks target
 `localhost`; provisioning tasks use privilege escalation. They are idempotent so
@@ -82,6 +82,9 @@ Docker group user before any downloads. It requires more than 400 GB of free
 space on the filesystem containing `/srv`, the planned offline-mirror location.
 When the offline mirror is enabled, it also applies the mirror's configured
 capacity requirement to `/srv` and checks the Debian security archive.
+When VNC screen sharing is enabled, preflight requires the selected desktop
+user to have an active GNOME session so credentials can be stored in that
+user's keyring.
 
 The baseline requests signed Debian, Docker and Metasploit repository metadata,
 GitHub's release API, PyPI and RubyGems package access, conda-forge SageMath
@@ -331,6 +334,7 @@ ansible-playbook tooling-c2.yml --ask-become-pass
 ansible-playbook tooling-bloodhound.yml --ask-become-pass \
   --extra-vars tooling_bloodhound_enabled=true
 ansible-playbook customization.yml --ask-become-pass
+ansible-playbook screen-sharing.yml --ask-become-pass
 ansible-playbook mirror-sync.yml --ask-become-pass
 ansible-playbook mirror-enable.yml --ask-become-pass
 ansible-playbook provision-manifest.yml --ask-become-pass
@@ -343,6 +347,7 @@ make validate-config  # Local, read-only configuration checks
 make preflight        # Configuration, target host, storage and Internet checks
 make                  # Validate and provision the complete burner
 make verify           # Read-only post-reboot verification
+make screen-sharing   # Configure optional GNOME Wayland VNC sharing
 make mirror-sync      # Synchronize the optional mirror while online
 make mirror-enable    # Validate the mirror and switch APT to it
 make manifest         # Refresh the provisioning inventory
@@ -374,8 +379,8 @@ hardening_allowed_udp_ports: []
 
 These ports are allowed from **any IPv4 or IPv6 source**, on every interface.
 Change the list and rerun the playbook if the event configuration changes.
-Existing tracked connections can remain open until disconnected. Screen sharing
-is not installed or opened by this baseline.
+Existing tracked connections can remain open until disconnected. Optional
+screen sharing is disabled by default.
 
 `hardening_upgrade_packages: true` applies available updates during preparation.
 Set it to `false` when you need to avoid package upgrades during an event. The role
@@ -936,6 +941,54 @@ Ghidra, Binary Ninja Free, Burp and SecLists are large downloads and consume
 several gigabytes after extraction. Provision them while the machine has Internet
 access.
 
+### Optional GNOME Wayland VNC screen sharing
+
+Screen sharing is disabled by default. It shares the active GNOME Wayland
+desktop through standard VNC/RFB and defaults to view-only access. Enable it in
+`local.yml` and explicitly open the same port in the host firewall:
+
+```yaml
+screen_sharing_enabled: true
+screen_sharing_vnc_port: 5900
+screen_sharing_view_only: true
+hardening_allowed_tcp_ports: [5900]
+```
+
+Run the normal `make` provisioning command while logged in to GNOME as the
+selected `customization_user`. The preflight refuses the profile when that user
+does not have an active session bus. To configure it separately after the rest
+of the machine is provisioned, log in to GNOME and run `make screen-sharing`.
+
+Debian 13 builds `gnome-remote-desktop` without its upstream VNC backend. The
+role downloads the current Debian source package, adds `libvncserver-dev`,
+enables the Meson VNC option, gives the result a `+deburner1` version suffix,
+installs it as a Debian package, and holds that package for the short burner
+lifecycle. The built `.deb` is retained below
+`/var/cache/deburner/gnome-remote-desktop-vnc`; package-build dependencies remain
+installed. This keeps the local delta visible in package state and lets
+`grdctl vnc` configure GNOME's native Remote Desktop service.
+
+The role generates an eight-character password, which is the maximum accepted
+by this VNC backend, and stores the operator copy as root-only data. Read it
+with:
+
+```sh
+sudo cat /var/lib/deburner/vnc-password
+```
+
+Set `screen_sharing_view_only: false` only when teammates also need keyboard and
+pointer control. Screen sharing follows the active desktop session and stops
+when that session is locked or logged out. Log back in and unlock the desktop
+before reconnecting.
+
+VNC traffic is not encrypted. The managed firewall exception accepts the port
+on every interface from any IPv4 or IPv6 source, so use this only on a trusted
+event LAN or through a trusted VPN such as WireGuard. Never expose the VNC port
+directly to the public Internet. Review the current Debian
+[`gnome-remote-desktop` source package](https://sources.debian.org/src/gnome-remote-desktop/)
+and [GNOME Remote Desktop documentation](https://gitlab.gnome.org/GNOME/gnome-remote-desktop/-/blob/master/README.md)
+before enabling the locally rebuilt backend.
+
 ### Offline Debian mirror
 
 The offline mirror is disabled by default. To include synchronization in the
@@ -1085,6 +1138,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Web tooling | Install current ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial and Burp Suite Community releases without configuring an account or license | Cover web fuzzing, discovery, injection, TLS, token and Java deserialization work through system-wide commands and an interactive proxy |
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, a fresh unencrypted Ed25519 identity, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults and a burner-only SSH identity |
+| Screen sharing | Optionally rebuild Debian's GNOME Remote Desktop package with LibVNCServer support, configure password-authenticated VNC for the active GNOME Wayland session, and default to view-only access | Provide standard VNC/RFB screen viewing without switching GNOME to Xorg; explicitly opens the selected host port and requires a trusted LAN or VPN |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
 | Orchestration | Add `deburner.yml`, logged Makefile operator targets and automatic `local.yml` loading | Stream and retain output while running the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, inventory generation, preflight and verification workflows |
@@ -1126,7 +1180,8 @@ ansible-playbook verify.yml
 `verify.yml` is deliberately separate from `deburner.yml`; provisioning does not
 run it automatically. It checks the supported platform, services, firewall, SSH
 exposure, AppArmor, sysctls, Docker plugins, sudo policy, GNOME preferences,
-managed user files, installed commands, optional mirror metadata, and selected
+managed user files, installed commands, optional VNC state and mirror metadata,
+and selected
 expected entries in the provisioning manifest. It does not change configuration
 or require Internet access, so it remains useful after the machine has been
 disconnected. It stops with the failed check and prints a
@@ -1189,12 +1244,3 @@ depends on the drive technology and system firmware; use the drive vendor's
 documented sanitize or secure-erase operation and verify that it completed. A
 normal file deletion, filesystem format, Ansible rerun, or Debian reinstall is
 not the end-of-event sanitization procedure.
-
-## Next categories
-
-- **Optional screen sharing:** VNC sharing of the existing GNOME Wayland desktop
-  remains deferred. WayVNC supports wlroots-based compositors and explicitly does
-  not support GNOME, so it cannot meet the current desktop requirement. See the
-  [WayVNC compatibility note](https://github.com/any1/wayvnc#introduction).
-
-Screen sharing remains a recorded requirement, not an implemented playbook.

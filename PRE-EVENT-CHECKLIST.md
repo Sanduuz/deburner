@@ -73,11 +73,17 @@ traffic or files.
   tooling_bloodhound_enabled: false
   tooling_mobile_android_studio_enabled: false
   tooling_mobile_android_licenses_accepted: false
+  screen_sharing_enabled: false
   offline_mirror_enabled: false
   ```
 
 - [ ] If Android Studio is enabled, review the Android SDK license and set
       `tooling_mobile_android_licenses_accepted: true` only after accepting it.
+- [ ] If VNC screen sharing is enabled, add `screen_sharing_vnc_port` to
+      `hardening_allowed_tcp_ports`, use a trusted event LAN or VPN, and log in
+      to GNOME as the selected desktop user before running preflight or
+      provisioning. Keep `screen_sharing_view_only: true` unless remote input is
+      deliberately required.
 - [ ] If the offline mirror is enabled, review its storage path and whether
       source packages or package-content indexes are needed. The default mirror
       stores Debian 13 amd64 and architecture-independent binary packages below
@@ -130,6 +136,10 @@ services are reachable over validated HTTPS.
       works without Internet access and does not change the machine.
 - [ ] Confirm that the intended GNOME account, keyboard layouts, display setup,
       audio, Wi-Fi, event VPN, and any required external adapters work.
+- [ ] If VNC is enabled, read its password with
+      `sudo cat /var/lib/deburner/vnc-password`, connect from the intended VNC
+      client, confirm view-only or input behavior, and confirm that locking the
+      GNOME session ends access.
 - [ ] Close and reopen the login session if Docker group access was enabled,
       then confirm `docker info` works without `sudo`.
 - [ ] Inspect the provisioning inventory when useful:
@@ -176,6 +186,8 @@ APT can later be switched between the two source sets with
       and event network details.
 - [ ] Review listening sockets with `sudo ss -lntup`. SSH should not listen when
       `hardening_disable_ssh` has its default value of `true`.
+- [ ] If VNC is enabled, confirm its selected port is reachable only through the
+      trusted event LAN or VPN and is not exposed to the public Internet.
 - [ ] Start no C2 framework, Responder, BloodHound container, packet capture,
       wireless monitor mode, or listener until the authorized exercise requires
       it.

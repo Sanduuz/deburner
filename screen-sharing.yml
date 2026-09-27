@@ -1,0 +1,10 @@
+---
+- name: Configure optional GNOME Wayland VNC screen sharing
+  hosts: burner
+  become: true
+  gather_facts: true
+  vars_files:
+    - - local.yml
+      - local.yml.example
+  roles:
+    - screen_sharing

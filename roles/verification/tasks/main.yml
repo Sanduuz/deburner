@@ -40,6 +40,7 @@
 - name: Record verification expectations
   ansible.builtin.set_fact:
     verification_user: "{{ verification_passwd.stdout.split(':')[0] }}"
+    verification_uid: "{{ verification_passwd.stdout.split(':')[2] }}"
     verification_home: "{{ verification_passwd.stdout.split(':')[5] }}"
     verification_gnome_settings: >-
       {{ customization_gnome_settings
@@ -76,6 +77,20 @@
     verification_android_image_architecture: >-
       {{ tooling_mobile_android_system_image_architecture
          | default(verification_mobile_defaults.tooling_mobile_android_system_image_architecture) }}
+    verification_screen_sharing_enabled: >-
+      {{ screen_sharing_enabled
+         | default(verification_screen_sharing_defaults.screen_sharing_enabled) }}
+    verification_screen_sharing_port: >-
+      {{ screen_sharing_vnc_port
+         | default(verification_screen_sharing_defaults.screen_sharing_vnc_port) }}
+    verification_screen_sharing_view_only: >-
+      {{ screen_sharing_view_only
+         | default(verification_screen_sharing_defaults.screen_sharing_view_only) }}
+    verification_screen_sharing_password_file: >-
+      {{ screen_sharing_password_file
+         | default(verification_screen_sharing_defaults.screen_sharing_password_file) }}
+    verification_screen_sharing_runtime_dir: >-
+      /run/user/{{ verification_passwd.stdout.split(':')[2] }}
 
 - name: Read required service states
   ansible.builtin.command:
@@ -613,6 +628,161 @@
         | length == 0
     fail_msg: A BloodHound application container is running.
   when: verification_bloodhound_enabled | bool
+
+- name: Inspect the VNC password file
+  ansible.builtin.stat:
+    path: "{{ verification_screen_sharing_password_file }}"
+  register: verification_screen_sharing_password_state
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read the installed GNOME Remote Desktop package version
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - --show
+      - --showformat=${Version}
+      - gnome-remote-desktop
+  register: verification_screen_sharing_package_version
+  changed_when: false
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read held package selections for VNC
+  ansible.builtin.command:
+    argv:
+      - apt-mark
+      - showhold
+  register: verification_screen_sharing_held_packages
+  changed_when: false
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require the managed VNC package and hold
+  ansible.builtin.assert:
+    that:
+      - >-
+        verification_screen_sharing_defaults.screen_sharing_local_version_suffix
+        in verification_screen_sharing_package_version.stdout
+      - >-
+        'gnome-remote-desktop'
+        in verification_screen_sharing_held_packages.stdout_lines
+    fail_msg: The managed GNOME Remote Desktop VNC package or its hold is missing.
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require a restricted VNC password file
+  ansible.builtin.assert:
+    that:
+      - verification_screen_sharing_password_state.stat.exists
+      - verification_screen_sharing_password_state.stat.isreg
+      - verification_screen_sharing_password_state.stat.pw_name == 'root'
+      - verification_screen_sharing_password_state.stat.gr_name == 'root'
+      - verification_screen_sharing_password_state.stat.mode == '0600'
+    fail_msg: The managed VNC password file is missing or has unsafe permissions.
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read the managed VNC password for validation
+  ansible.builtin.slurp:
+    src: "{{ verification_screen_sharing_password_file }}"
+  register: verification_screen_sharing_password
+  no_log: true
+  when: verification_screen_sharing_enabled | bool
+
+- name: Validate the managed VNC password format
+  ansible.builtin.assert:
+    that:
+      - >-
+        verification_screen_sharing_password.content | b64decode | trim
+        is match('^[A-Za-z0-9]{8}$')
+    fail_msg: The managed VNC password must contain exactly eight safe characters.
+  no_log: true
+  when: verification_screen_sharing_enabled | bool
+
+- name: Inspect the active GNOME session bus
+  ansible.builtin.stat:
+    path: "{{ verification_screen_sharing_runtime_dir }}/bus"
+  register: verification_screen_sharing_session_bus
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require the active GNOME session used by screen sharing
+  ansible.builtin.assert:
+    that:
+      - verification_screen_sharing_session_bus.stat.exists
+      - verification_screen_sharing_session_bus.stat.issock | default(false)
+    fail_msg: >-
+      VNC verification requires {{ verification_user }} to be logged in to GNOME.
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read GNOME Remote Desktop VNC status
+  become: true
+  become_user: "{{ verification_user }}"
+  ansible.builtin.command:
+    argv:
+      - grdctl
+      - status
+  environment: &verification_screen_sharing_environment
+    HOME: "{{ verification_home }}"
+    XDG_RUNTIME_DIR: "{{ verification_screen_sharing_runtime_dir }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path={{ verification_screen_sharing_runtime_dir }}/bus"
+  register: verification_screen_sharing_status
+  changed_when: false
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require the configured VNC backend
+  ansible.builtin.assert:
+    that:
+      - "'VNC:' in verification_screen_sharing_status.stdout"
+      - "'Status: enabled' in verification_screen_sharing_status.stdout"
+      - >-
+        ('Port: ' ~ verification_screen_sharing_port)
+        in verification_screen_sharing_status.stdout
+      - "'Auth method: password' in verification_screen_sharing_status.stdout"
+      - >-
+        ('View-only: ' ~ ('yes' if verification_screen_sharing_view_only else 'no'))
+        in verification_screen_sharing_status.stdout
+      - "'Negotiate port: no' in verification_screen_sharing_status.stdout"
+      - "'Password: (hidden)' in verification_screen_sharing_status.stdout"
+    fail_msg: GNOME Remote Desktop does not report the requested VNC configuration.
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read the GNOME Remote Desktop user-service state
+  become: true
+  become_user: "{{ verification_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - gnome-remote-desktop.service
+  environment: *verification_screen_sharing_environment
+  register: verification_screen_sharing_service
+  changed_when: false
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require the active GNOME Remote Desktop user service
+  ansible.builtin.assert:
+    that:
+      - verification_screen_sharing_service.rc == 0
+      - verification_screen_sharing_service.stdout | trim == 'active'
+    fail_msg: GNOME Remote Desktop is not active in the desktop user session.
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read listening TCP sockets for the VNC port
+  ansible.builtin.command:
+    argv:
+      - ss
+      - --listening
+      - --tcp
+      - --numeric
+      - "sport = :{{ verification_screen_sharing_port }}"
+  register: verification_screen_sharing_listener
+  changed_when: false
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require a VNC listener
+  ansible.builtin.assert:
+    that:
+      - verification_screen_sharing_listener.stdout_lines | length > 1
+    fail_msg: >-
+      No process is listening on VNC TCP port {{ verification_screen_sharing_port }}.
+  when: verification_screen_sharing_enabled | bool
 
 - name: Report successful verification
   ansible.builtin.debug:
