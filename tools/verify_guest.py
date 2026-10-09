@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 FAILURES: list[str] = []
@@ -214,6 +215,7 @@ def verify_tooling() -> None:
         "fdfind",
         "ffmpeg",
         "ffuf",
+        "firefox-esr",
         "fastboot",
         "foremost",
         "frida",
@@ -329,6 +331,41 @@ def verify_tooling() -> None:
     file_exists("/opt/testssl.sh/testssl.sh")
     file_exists("/opt/ysoserial/ysoserial-all.jar")
     file_exists("/usr/share/seclists/README.md")
+    firefox_policy_path = Path("/etc/firefox/policies/policies.json")
+    firefox_extension_path = Path(
+        "/usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi"
+    )
+    file_exists(str(firefox_policy_path))
+    file_exists(str(firefox_extension_path))
+    try:
+        firefox_policy = json.loads(firefox_policy_path.read_text())
+        firefox_extension = firefox_policy["policies"]["ExtensionSettings"]["@testpilot-containers"]
+    except (KeyError, OSError, json.JSONDecodeError) as error:
+        record(False, "Firefox extension policy is valid", str(error))
+    else:
+        record(
+            firefox_extension.get("installation_mode") == "normal_installed",
+            "Firefox Multi-Account Containers is normally installed",
+        )
+        record(
+            firefox_extension.get("install_url")
+            == "file:///usr/local/share/deburner/firefox-extensions/"
+            "multi-account-containers.xpi",
+            "Firefox extension policy uses the staged XPI",
+        )
+    try:
+        with zipfile.ZipFile(firefox_extension_path) as archive:
+            firefox_manifest = json.loads(archive.read("manifest.json"))
+        firefox_gecko = firefox_manifest.get("browser_specific_settings", {}).get(
+            "gecko", {}
+        ) or firefox_manifest.get("applications", {}).get("gecko", {})
+    except (KeyError, OSError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+        record(False, "Firefox extension XPI manifest is valid", str(error))
+    else:
+        record(
+            firefox_gecko.get("id") == "@testpilot-containers",
+            "Firefox extension XPI is Multi-Account Containers",
+        )
     record(not Path("/srv/deburner/mirror").exists(), "offline mirror was not synchronized")
 
 

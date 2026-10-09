@@ -311,6 +311,55 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Read the managed Firefox policy
+  ansible.builtin.slurp:
+    src: /etc/firefox/policies/policies.json
+  register: verification_firefox_policy_file
+
+- name: Decode the managed Firefox policy
+  ansible.builtin.set_fact:
+    verification_firefox_policy: >-
+      {{ verification_firefox_policy_file.content | b64decode | from_json }}
+
+- name: Require the managed Firefox extension policy
+  ansible.builtin.assert:
+    that:
+      - >-
+        verification_firefox_policy.policies.ExtensionSettings['@testpilot-containers'].installation_mode
+        == 'normal_installed'
+      - >-
+        verification_firefox_policy.policies.ExtensionSettings['@testpilot-containers'].install_url
+        == 'file:///usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi'
+    fail_msg: Firefox does not contain the managed Multi-Account Containers policy.
+
+- name: Read the staged Firefox extension manifest
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - >-
+        import json,sys,zipfile;
+        archive=zipfile.ZipFile(sys.argv[1]);
+        manifest=json.loads(archive.read('manifest.json'));
+        archive.close();
+        gecko=(manifest.get('browser_specific_settings', {}).get('gecko', {})
+        or manifest.get('applications', {}).get('gecko', {}));
+        print(json.dumps({'id': gecko.get('id'), 'version': manifest.get('version')}))
+      - /usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi
+  register: verification_firefox_extension_manifest_command
+  changed_when: false
+
+- name: Require the staged Firefox extension identity
+  ansible.builtin.assert:
+    that:
+      - >-
+        (verification_firefox_extension_manifest_command.stdout | from_json).id
+        == '@testpilot-containers'
+      - >-
+        (verification_firefox_extension_manifest_command.stdout | from_json).version
+        is match('^[0-9]+(?:\.[0-9]+)+$')
+    fail_msg: The staged Firefox extension has an unexpected manifest.
+
 - name: Read the provisioning manifest
   ansible.builtin.slurp:
     src: /var/lib/deburner/provision-manifest.json
@@ -331,6 +380,7 @@
       - verification_manifest.debian_packages | type_debug == 'dict'
       - "'ansible' in verification_manifest.debian_packages"
       - "'docker-ce' in verification_manifest.debian_packages"
+      - "'firefox-esr' in verification_manifest.debian_packages"
       - verification_manifest.docker.available | bool
       - verification_manifest.docker.daemon_reachable | bool
       - verification_manifest.docker.images | type_debug == 'list'

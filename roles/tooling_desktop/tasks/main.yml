@@ -4,8 +4,19 @@
     that:
       - tooling_desktop_packages | type_debug == 'list'
       - tooling_desktop_packages | length > 0
+      - "'firefox-esr' in tooling_desktop_packages"
       - tooling_desktop_packages | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length == tooling_desktop_packages | length
       - tooling_desktop_zed_release_api is match('^https://api\.github\.com/')
+      - tooling_desktop_firefox_addon_api
+        == 'https://addons.mozilla.org/api/v5/addons/addon/multi-account-containers/'
+      - tooling_desktop_firefox_addon_id == '@testpilot-containers'
+      - tooling_desktop_firefox_addon_slug == 'multi-account-containers'
+      - tooling_desktop_firefox_addon_installation_mode == 'normal_installed'
+      - tooling_desktop_firefox_extension_root
+        == '/usr/local/share/deburner/firefox-extensions'
+      - tooling_desktop_firefox_extension_path
+        == '/usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi'
+      - tooling_desktop_firefox_policy_path == '/etc/firefox/policies/policies.json'
     fail_msg: Review the desktop tooling variables; one or more values are invalid.
 
 - name: Install desktop workstation packages
@@ -30,6 +41,97 @@
     owner: root
     group: root
     mode: '0755'
+
+- name: Read the current Firefox Multi-Account Containers release
+  ansible.builtin.uri:
+    url: "{{ tooling_desktop_firefox_addon_api }}"
+    return_content: true
+    validate_certs: true
+  register: tooling_desktop_firefox_addon_release
+  changed_when: false
+
+- name: Validate the Firefox extension release metadata
+  ansible.builtin.assert:
+    that:
+      - tooling_desktop_firefox_addon_release.json.guid
+        == tooling_desktop_firefox_addon_id
+      - tooling_desktop_firefox_addon_release.json.slug
+        == tooling_desktop_firefox_addon_slug
+      - tooling_desktop_firefox_addon_release.json.current_version.version
+        is match('^[0-9]+(?:\.[0-9]+)+$')
+      - tooling_desktop_firefox_addon_release.json.current_version.file.url
+        is match('^https://addons\.mozilla\.org/firefox/downloads/file/[0-9]+/')
+      - tooling_desktop_firefox_addon_release.json.current_version.file.hash
+        is match('^sha256:[0-9a-f]{64}$')
+      - tooling_desktop_firefox_addon_release.json.current_version.file.status == 'public'
+    fail_msg: >-
+      Mozilla Add-ons did not return a valid current Multi-Account Containers release.
+
+- name: Create the local Firefox extension directory
+  ansible.builtin.file:
+    path: "{{ tooling_desktop_firefox_extension_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the current Firefox Multi-Account Containers extension
+  ansible.builtin.get_url:
+    url: "{{ tooling_desktop_firefox_addon_release.json.current_version.file.url }}"
+    dest: "{{ tooling_desktop_firefox_extension_path }}"
+    checksum: "{{ tooling_desktop_firefox_addon_release.json.current_version.file.hash }}"
+    owner: root
+    group: root
+    mode: '0644'
+    timeout: 60
+
+- name: Read the downloaded Firefox extension manifest
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - >-
+        import json,sys,zipfile;
+        archive=zipfile.ZipFile(sys.argv[1]);
+        manifest=json.loads(archive.read('manifest.json'));
+        archive.close();
+        gecko=(manifest.get('browser_specific_settings', {}).get('gecko', {})
+        or manifest.get('applications', {}).get('gecko', {}));
+        print(json.dumps({'id': gecko.get('id'), 'version': manifest.get('version')}))
+      - "{{ tooling_desktop_firefox_extension_path }}"
+  register: tooling_desktop_firefox_extension_manifest_command
+  changed_when: false
+
+- name: Decode the downloaded Firefox extension manifest
+  ansible.builtin.set_fact:
+    tooling_desktop_firefox_extension_manifest: >-
+      {{ tooling_desktop_firefox_extension_manifest_command.stdout | from_json }}
+
+- name: Require the expected Firefox extension identity and version
+  ansible.builtin.assert:
+    that:
+      - tooling_desktop_firefox_extension_manifest.id
+        == tooling_desktop_firefox_addon_id
+      - tooling_desktop_firefox_extension_manifest.version
+        == tooling_desktop_firefox_addon_release.json.current_version.version
+    fail_msg: The downloaded XPI manifest does not match the requested extension release.
+
+- name: Create the system Firefox policy directory
+  ansible.builtin.file:
+    path: "{{ tooling_desktop_firefox_policy_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the Firefox extension policy
+  ansible.builtin.template:
+    src: firefox-policies.json.j2
+    dest: "{{ tooling_desktop_firefox_policy_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/bin/python3 -m json.tool %s
 
 - name: Read the latest stable Zed release
   ansible.builtin.uri:

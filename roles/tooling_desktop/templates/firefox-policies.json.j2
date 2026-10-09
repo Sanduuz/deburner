@@ -1,0 +1,10 @@
+{{ {
+  'policies': {
+    'ExtensionSettings': {
+      tooling_desktop_firefox_addon_id: {
+        'installation_mode': tooling_desktop_firefox_addon_installation_mode,
+        'install_url': 'file://' ~ tooling_desktop_firefox_extension_path
+      }
+    }
+  }
+} | to_nice_json }}

@@ -136,6 +136,10 @@ services are reachable over validated HTTPS.
       works without Internet access and does not change the machine.
 - [ ] Confirm that the intended GNOME account, keyboard layouts, display setup,
       audio, Wi-Fi, event VPN, and any required external adapters work.
+- [ ] Open Firefox once and confirm that `about:policies` lists the active
+      extension policy and `about:addons` shows Firefox Multi-Account Containers.
+      Confirm that it can be disabled because it is normally installed rather
+      than locked.
 - [ ] If VNC is enabled, read its password with
       `sudo cat /var/lib/deburner/vnc-password`, connect from the intended VNC
       client, confirm view-only or input behavior, and confirm that locking the

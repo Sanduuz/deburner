@@ -1,9 +1,10 @@
 ---
-# Graphical tools available directly from Debian. No application preferences or
-# user profiles are managed by this role.
+# Graphical tools available directly from Debian. Firefox is explicit rather
+# than relying on the package selection made by the GNOME installer.
 tooling_desktop_packages:
   - chromium
   - d-feet
+  - firefox-esr
   - gimp
   - libasound2t64
   - libatomic1
@@ -24,3 +25,13 @@ tooling_desktop_github_api_headers:
   X-GitHub-Api-Version: '2022-11-28'
 
 tooling_desktop_zed_release_api: https://api.github.com/repos/zed-industries/zed/releases/latest
+
+tooling_desktop_firefox_addon_api: >-
+  https://addons.mozilla.org/api/v5/addons/addon/multi-account-containers/
+tooling_desktop_firefox_addon_id: '@testpilot-containers'
+tooling_desktop_firefox_addon_slug: multi-account-containers
+tooling_desktop_firefox_addon_installation_mode: normal_installed
+tooling_desktop_firefox_extension_root: /usr/local/share/deburner/firefox-extensions
+tooling_desktop_firefox_extension_path: >-
+  /usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi
+tooling_desktop_firefox_policy_path: /etc/firefox/policies/policies.json

@@ -87,8 +87,8 @@ user to have an active GNOME session so credentials can be stored in that
 user's keyring.
 
 The baseline requests signed Debian, Docker and Metasploit repository metadata,
-GitHub's release API, PyPI and RubyGems package access, conda-forge SageMath
-metadata, Rust's distribution service and PortSwigger's release page over
+GitHub's release API, Mozilla Add-ons, PyPI and RubyGems package access,
+conda-forge SageMath metadata, Rust's distribution service and PortSwigger's release page over
 certificate-validated HTTPS. When selected profiles require them, the preflight
 also checks the Android release and SDK services, rootAVD's GitLab API, Docker
 Hub and GitHub's container registry. Authenticated container registries are
@@ -743,19 +743,39 @@ normal VM test leaves it disabled because it is optional and resource intensive.
 
 ### Desktop workstation tooling
 
-`tooling-desktop.yml` installs Chromium, GIMP, Meld, PulseAudio Volume Control,
-D-Feet and virt-manager from Debian. It also resolves the latest stable Zed
+`tooling-desktop.yml` installs Firefox ESR, Chromium, GIMP, Meld, PulseAudio
+Volume Control, D-Feet and virt-manager from Debian. It also resolves the latest stable Zed
 release from the official GitHub repository, verifies the release-provided
 SHA-256 digest, and installs it under `/opt` with a stable command and GNOME
-launcher. The role does not manage application profiles, settings, extensions or
-accounts. Rerunning it while online upgrades Zed when a new stable release is
-available.
+launcher.
+
+The role also queries Mozilla Add-ons for the current
+[Firefox Multi-Account Containers](https://addons.mozilla.org/en-US/firefox/addon/multi-account-containers/)
+release, verifies the API-provided SHA-256 digest, validates the downloaded XPI's
+extension ID and version, and retains it under
+`/usr/local/share/deburner/firefox-extensions`. A system-wide
+[Firefox extension policy](https://firefox-admin-docs.mozilla.org/reference/policies/extensionsettings/)
+installs that local XPI for every Firefox profile. Its `normal_installed` mode
+allows the user to disable the extension, and using a local XPI makes it
+available when Firefox is first opened without Internet access. The policy does
+not create containers, assign sites to them, sign in to Firefox, or configure
+Firefox Sync. Multi-Account Containers can access browsing history, browser tabs
+and data for all websites; review those permissions before using it.
+
+Firefox reads the managed policy when it starts. Close and reopen Firefox if it
+was running during provisioning, then inspect `about:policies` and `about:addons`
+to confirm that the policy is active and the extension is installed. The
+read-only Ansible verification checks the policy and staged XPI without creating
+or modifying a Firefox profile.
+
+Rerunning the playbook while online upgrades Zed and stages the latest compatible
+Multi-Account Containers release available at that time.
 
 Debian may install and socket-activate local libvirt components as recommended
 dependencies of virt-manager, but this role does not configure a libvirt TCP
 listener or open a firewall port. Replace the complete Debian package list with
-`tooling_desktop_packages` in `local.yml`; Zed is installed independently of that
-list.
+`tooling_desktop_packages` in `local.yml`; retain `firefox-esr` so the managed
+extension has its target browser. Zed is installed independently of that list.
 
 ### Exploitation and debugging tooling
 
@@ -1073,7 +1093,8 @@ Refresh the mirror shortly before disconnecting. Debian security metadata has an
 expiry time which APT continues to enforce; this project does not disable
 signature or expiry verification. The mirror covers Debian packages only. It
 does not contain upstream Docker packages, container images, Git repositories,
-Python package indexes, Rust, uv, Volatility, Zed, Ghidra, Binary Ninja, radare2,
+Python package indexes, Rust, uv, Volatility, Zed, Firefox extensions, Ghidra,
+Binary Ninja, radare2,
 Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, Sliver, Metasploit,
 Tuoni source or container images, zsteg, StegSolve, BloodHound container images,
 ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial, Burp Suite or
@@ -1131,7 +1152,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Steganography / media tooling | Install Debian media and steganography packages, isolated current zsteg, and the checksum-verified official StegSolve v1.4 JAR | Support hidden-data, image-plane, audio-spectrum, transcoding and file-carving challenges with command-line and graphical tools |
 | Windows / AD tooling | Install SMB/LDAP clients, Hashcat, John, Hydra, current stable Impacket, Certipy and NetExec, plus the current Responder source; expose their commands system-wide without enabling Responder | Support Windows and Active Directory discovery, authentication, credential recovery, relay and remote administration exercises without modifying Debian's Python environment or starting listeners |
 | BloodHound CE | Optionally install the checksum-described current BloodHound CLI, stage its complete Docker stack, preserve the initial local admin password root-only, and leave the containers stopped | Make graph-based Active Directory analysis available offline without exposing or running its web interface by default |
-| Desktop tooling | Install Debian's Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed | Provide graphical workstation and editing tools without applying personal preferences |
+| Desktop tooling | Install Debian's Firefox ESR, Chromium, GIMP, Meld, audio control, D-Bus inspection and virtual-machine management applications plus current stable Zed; stage the checksum-verified current Firefox Multi-Account Containers XPI and install it through system policy | Provide graphical workstation and editing tools plus offline-ready containerized browsing without requiring a Firefox account |
 | Exploitation tooling | Install Debian's GDB, GDB Multiarch, pwntools and related packages; install current PEDA with a Debian 13 compatibility adjustment | Support binary exploitation and debugging without a global pip installation |
 | Reverse engineering | Resolve and install current stable Ghidra, Binary Ninja Free and upstream radare2 releases; build the current pycdc and pycdas; add stable commands and desktop launchers | Provide current native, Python-bytecode and Java reverse-engineering tools without accounts or stored license keys |
 | Android tooling | Install Android device, APK inspection, signing, decompilation and instrumentation clients; optionally install current Android Studio, SDK, emulator, an unrooted newest-stable AVD, and a rootAVD/Magisk-patched Android 14 AVD | Support static and dynamic Android challenge analysis while keeping the large development and emulation profile configuration-gated |
@@ -1215,7 +1236,7 @@ command -v steghide stegseek zsteg outguess magick ffmpeg sox audacity sonic-vis
 command -v uv uvx vol volatility2 volatility3 volshell
 command -v smbclient ldapsearch hashcat john hydra responder certipy
 command -v impacket-GetUserSPNs impacket-ntlmrelayx impacket-psexec impacket-secretsdump impacket-wmiexec nxc netexec nxcdb
-command -v chromium gimp meld pavucontrol d-feet virt-manager zed
+command -v firefox-esr chromium gimp meld pavucontrol d-feet virt-manager zed
 command -v gdb gdb-multiarch pwn checksec r2 radare2 pycdc pycdas ghidra binaryninja burpsuite
 command -v adb fastboot aapt apksigner zipalign apktool jadx jadx-gui frida frida-ps objection
 command -v ffuf gobuster sqlmap nikto testssl.sh jwt_tool ysoserial

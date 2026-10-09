@@ -33,6 +33,9 @@ preflight_required_endpoints:
   - name: conda-forge SageMath metadata
     url: https://api.anaconda.org/package/conda-forge/sage
     marker: '"name": "sage"'
+  - name: Mozilla Add-ons release API
+    url: https://addons.mozilla.org/api/v5/addons/addon/multi-account-containers/
+    marker: '"guid":"@testpilot-containers"'
 
 preflight_android_endpoints:
   - name: Android Studio release service
