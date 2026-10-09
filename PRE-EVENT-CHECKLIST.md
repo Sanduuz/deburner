@@ -18,8 +18,9 @@ traffic or files.
 - [ ] Install Debian 13 amd64 with GNOME and disk encryption.
 - [ ] Set the short host name to `deburner`. Confirm it with `hostname -s`.
 - [ ] Confirm that the account used for provisioning can run `sudo`.
-- [ ] Confirm that `/srv` is on the intended disk and has more than 400 GB free
-      with `df -h /srv`. A disk of at least 512 GB is recommended.
+- [ ] Confirm that `/srv` is on the intended filesystem, which must have more
+      than 400 GB of capacity and more than 100 GB free. Check it with
+      `df -h /srv`. A disk of at least 512 GB is recommended.
 - [ ] Connect to a trusted provisioning network with unrestricted HTTPS access
       and no captive portal.
 - [ ] Connect external power and allow enough time for large tool downloads.
@@ -113,8 +114,8 @@ traffic or files.
 
 The preflight at the beginning of `make` stops before system changes unless the
 machine is Debian 13 amd64 with systemd, its short host name is `deburner`, the
-filesystem containing `/srv` has more than 400 GB free, and required Internet
-services are reachable over validated HTTPS.
+filesystem containing `/srv` has more than 400 GB of capacity and more than
+100 GB free, and required Internet services are reachable over validated HTTPS.
 
 ## 5. Reboot and verify
 

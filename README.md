@@ -78,8 +78,9 @@ configuration to another machine accidentally. Individual category playbooks
 do not run the guard and remain available for deliberate maintenance.
 
 The preflight then resolves the selected desktop account and every requested
-Docker group user before any downloads. It requires more than 400 GB of free
-space on the filesystem containing `/srv`, the planned offline-mirror location.
+Docker group user before any downloads. It requires the filesystem containing
+`/srv` to have more than 400 GB of total capacity and more than 100 GB of
+currently available working space.
 When the offline mirror is enabled, it also applies the mirror's configured
 capacity requirement to `/srv` and checks the Debian security archive.
 When VNC screen sharing is enabled, preflight requires the selected desktop
@@ -104,10 +105,11 @@ optional profiles before checking their endpoints. A failure stops
 remain available for deliberate partial or offline reruns and do not invoke the
 preflight automatically.
 
-The disk threshold uses decimal gigabytes: 400 GB is 400,000,000,000 bytes. Change
-`preflight_storage_path` if the future mirror will live on another filesystem, or
-change `preflight_minimum_free_bytes` when deliberately using a different storage
-layout. The comparison is strict, so exactly 400 GB free does not pass.
+The disk thresholds use decimal gigabytes: 400 GB is 400,000,000,000 bytes.
+Change `preflight_storage_path` if the future mirror will live on another
+filesystem. `preflight_minimum_capacity_bytes` checks the stable filesystem
+size, while `preflight_minimum_free_bytes` preserves working room for downloads,
+package builds and event data. Both comparisons are strict.
 
 For a preliminary review:
 
@@ -1153,7 +1155,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 
 | Area | Modification | Purpose / impact |
 | --- | --- | --- |
-| Preflight | Require the short host name `deburner`, valid selected users and more than 400 GB free for `/srv`; conditionally check mirror capacity, KVM and profile-specific Android, GitLab and container-registry services alongside baseline Internet endpoints | Stop the umbrella playbook before system changes when the target or selected profiles cannot be provisioned successfully |
+| Preflight | Require the short host name `deburner`, valid selected users, more than 400 GB of filesystem capacity and more than 100 GB free for `/srv`; conditionally check mirror capacity, KVM and profile-specific Android, GitLab and container-registry services alongside baseline Internet endpoints | Stop the umbrella playbook before system changes when the target or selected profiles cannot be provisioned successfully |
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |

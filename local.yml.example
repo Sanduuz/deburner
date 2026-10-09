@@ -2,7 +2,8 @@
 # Copy to local.yml. This file is ignored by Git.
 preflight_network_timeout: 15
 preflight_storage_path: /srv
-preflight_minimum_free_bytes: 400000000000
+preflight_minimum_capacity_bytes: 400000000000
+preflight_minimum_free_bytes: 100000000000
 
 hardening_upgrade_packages: true
 hardening_automatic_security_updates: false

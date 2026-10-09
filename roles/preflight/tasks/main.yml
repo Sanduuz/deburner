@@ -23,7 +23,9 @@
       - preflight_network_timeout | int >= 1
       - preflight_network_timeout | int <= 120
       - preflight_storage_path is match('^/')
+      - preflight_minimum_capacity_bytes | int > 0
       - preflight_minimum_free_bytes | int > 0
+      - (preflight_minimum_capacity_bytes | int) > (preflight_minimum_free_bytes | int)
       - preflight_required_endpoints | type_debug == 'list'
       - preflight_required_endpoints | length > 0
       - preflight_android_endpoints | type_debug == 'list'
@@ -181,28 +183,47 @@
       - preflight_storage_path_details.stat.isdir | default(false)
     fail_msg: "The preflight storage path {{ preflight_storage_path }} must be an existing directory."
 
-- name: Read available space on the provisioning filesystem
+- name: Read the provisioning filesystem capacity and available space
   ansible.builtin.command:
     argv:
       - /usr/bin/df
       - --block-size=1
-      - --output=avail
+      - --output=size,avail
       - "{{ preflight_storage_path }}"
   register: preflight_disk_space
   changed_when: false
 
-- name: Record available provisioning space
+- name: Record provisioning filesystem space
   ansible.builtin.set_fact:
-    preflight_available_bytes: "{{ preflight_disk_space.stdout_lines[-1] | trim | int }}"
+    preflight_capacity_bytes: >-
+      {{ preflight_disk_space.stdout_lines[-1].split()[0] | int }}
+    preflight_available_bytes: >-
+      {{ preflight_disk_space.stdout_lines[-1].split()[1] | int }}
 
-- name: Require more than the configured free space
+- name: Require the configured provisioning filesystem capacity
+  ansible.builtin.assert:
+    that:
+      - (preflight_capacity_bytes | int) > (preflight_minimum_capacity_bytes | int)
+    fail_msg: >-
+      The filesystem containing {{ preflight_storage_path }} has a capacity of
+      {{ ((preflight_capacity_bytes | int) / 1000000000) | round(1) }} GB;
+      more than
+      {{ ((preflight_minimum_capacity_bytes | int) / 1000000000) | round(1) }} GB
+      is required.
+    success_msg: >-
+      The filesystem containing {{ preflight_storage_path }} has a capacity of
+      {{ ((preflight_capacity_bytes | int) / 1000000000) | round(1) }} GB.
+
+- name: Require enough working space for provisioning
   ansible.builtin.assert:
     that:
       - (preflight_available_bytes | int) > (preflight_minimum_free_bytes | int)
     fail_msg: >-
       The filesystem containing {{ preflight_storage_path }} has
       {{ ((preflight_available_bytes | int) / 1000000000) | round(1) }} GB free;
-      more than {{ ((preflight_minimum_free_bytes | int) / 1000000000) | round(1) }} GB is required.
+      more than
+      {{ ((preflight_minimum_free_bytes | int) / 1000000000) | round(1) }} GB
+      of working space is required.
     success_msg: >-
       The filesystem containing {{ preflight_storage_path }} has
       {{ ((preflight_available_bytes | int) / 1000000000) | round(1) }} GB free.

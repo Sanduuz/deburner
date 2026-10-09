@@ -1,7 +1,8 @@
 ---
 preflight_network_timeout: 15
 preflight_storage_path: /srv
-preflight_minimum_free_bytes: 400000000000
+preflight_minimum_capacity_bytes: 400000000000
+preflight_minimum_free_bytes: 100000000000
 
 # Each marker confirms that HTTPS reached the intended service rather than a
 # captive portal or unrelated proxy response.
