@@ -202,10 +202,10 @@
             that:
               - >-
                 screen_sharing_packaging_files.results[0].content | b64decode
-                is search('(?m)^               libva-dev,$')
+                is search('(?m)^\s+libva-dev,\s*$')
               - >-
                 screen_sharing_packaging_files.results[1].content | b64decode
-                is search('(?m)^\t\t-Dfdk_aac=false \\$')
+                is search('(?m)^\s+-Dfdk_aac=false\s+\\\s*$')
             fail_msg: >-
               Debian's GNOME Remote Desktop packaging changed. Review the
               current source before updating the minimal VNC build delta.
@@ -222,7 +222,7 @@
         - name: Enable the Meson VNC backend in the Debian build
           ansible.builtin.lineinfile:
             path: "{{ screen_sharing_source_directory }}/debian/rules"
-            insertafter: '^\s+-Dfdk_aac=false \\'
+            insertafter: '^\s+-Dfdk_aac=false\s+\\\s*$'
             line: "\t\t-Dvnc=true \\"
             owner: deburner-builder
             group: deburner-builder
