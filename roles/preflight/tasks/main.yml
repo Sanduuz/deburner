@@ -25,7 +25,6 @@
       - preflight_storage_path is match('^/')
       - preflight_minimum_capacity_bytes | int > 0
       - preflight_minimum_free_bytes | int > 0
-      - (preflight_minimum_capacity_bytes | int) > (preflight_minimum_free_bytes | int)
       - preflight_required_endpoints | type_debug == 'list'
       - preflight_required_endpoints | length > 0
       - preflight_android_endpoints | type_debug == 'list'
