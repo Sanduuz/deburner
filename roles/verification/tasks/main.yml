@@ -603,6 +603,8 @@
     - /opt/rootAVD/rootAVD.sh
     - /usr/local/bin/android-studio
     - /usr/local/bin/rootavd
+    - "{{ verification_home }}/.android/adbkey"
+    - "{{ verification_home }}/.android/adbkey.pub"
     - "{{ verification_home }}/.android/avd/{{ verification_android_avd_name }}.avd/config.ini"
     - >-
       {{ verification_home ~ '/.android/avd/'

@@ -15,6 +15,8 @@
          ~ '/' ~ tooling_mobile_android_rooted_system_image_flavor
          ~ '/' ~ tooling_mobile_android_system_image_architecture
          ~ '/ramdisk.img' }}
+    tooling_mobile_rootavd_adb_key: >-
+      {{ tooling_mobile_android_home ~ '/.android/adbkey' }}
 
 - name: Require the rootAVD-compatible Android system image
   ansible.builtin.assert:
@@ -141,6 +143,31 @@
     ANDROID_SDK_ROOT: "{{ tooling_mobile_android_sdk_root }}"
     HOME: "{{ tooling_mobile_android_home }}"
 
+- name: Create the Android Debug Bridge authentication key
+  become: true
+  become_user: "{{ tooling_mobile_android_user }}"
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/adb
+      - keygen
+      - "{{ tooling_mobile_rootavd_adb_key }}"
+    creates: "{{ tooling_mobile_rootavd_adb_key }}"
+  environment:
+    HOME: "{{ tooling_mobile_android_home }}"
+
+- name: Protect the Android Debug Bridge authentication key
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: file
+    owner: "{{ tooling_mobile_android_user }}"
+    group: "{{ tooling_mobile_android_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ tooling_mobile_rootavd_adb_key }}"
+      mode: '0600'
+    - path: "{{ tooling_mobile_rootavd_adb_key }}.pub"
+      mode: '0644'
+
 - name: Inspect the rooted AVD provisioning marker
   ansible.builtin.stat:
     path: >-
@@ -152,6 +179,32 @@
 - name: Patch and validate the rooted Android virtual device
   when: not tooling_mobile_rootavd_marker.stat.exists
   block:
+    - name: Stop any existing Android Debug Bridge server
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - kill-server
+      environment: &tooling_mobile_rootavd_environment
+        ADB_VENDOR_KEYS: "{{ tooling_mobile_rootavd_adb_key }}"
+        ANDROID_HOME: "{{ tooling_mobile_android_sdk_root }}"
+        ANDROID_SDK_ROOT: "{{ tooling_mobile_android_sdk_root }}"
+        ANDROID_SERIAL: "emulator-{{ tooling_mobile_android_emulator_port }}"
+        HOME: "{{ tooling_mobile_android_home }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Start the Android Debug Bridge server with the provisioning key
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - start-server
+      environment: *tooling_mobile_rootavd_environment
+      changed_when: false
+
     - name: Start the rooted AVD for rootAVD
       become: true
       become_user: "{{ tooling_mobile_android_user }}"
@@ -166,16 +219,30 @@
           - -no-audio
           - -no-boot-anim
           - -no-snapshot
+          - -wipe-data
           - -gpu
           - swiftshader_indirect
-      environment: &tooling_mobile_rootavd_environment
-        ANDROID_HOME: "{{ tooling_mobile_android_sdk_root }}"
-        ANDROID_SDK_ROOT: "{{ tooling_mobile_android_sdk_root }}"
-        ANDROID_SERIAL: "emulator-{{ tooling_mobile_android_emulator_port }}"
-        HOME: "{{ tooling_mobile_android_home }}"
+      environment: *tooling_mobile_rootavd_environment
       async: "{{ tooling_mobile_rootavd_patch_timeout }}"
       poll: 0
       changed_when: true
+
+    - name: Wait for Android Debug Bridge authorization on the rooted AVD
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - get-state
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_adb_state
+      changed_when: false
+      failed_when: false
+      until: tooling_mobile_rootavd_adb_state.stdout | trim == 'device'
+      retries: "{{ tooling_mobile_android_boot_retries }}"
+      delay: 5
 
     - name: Wait for the rooted AVD to finish booting
       become: true
@@ -248,6 +315,23 @@
       async: "{{ tooling_mobile_rootavd_patch_timeout }}"
       poll: 0
       changed_when: true
+
+    - name: Wait for Android Debug Bridge authorization on the patched AVD
+      become: true
+      become_user: "{{ tooling_mobile_android_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/adb
+          - -s
+          - "emulator-{{ tooling_mobile_android_emulator_port }}"
+          - get-state
+      environment: *tooling_mobile_rootavd_environment
+      register: tooling_mobile_rootavd_cold_adb_state
+      changed_when: false
+      failed_when: false
+      until: tooling_mobile_rootavd_cold_adb_state.stdout | trim == 'device'
+      retries: "{{ tooling_mobile_android_boot_retries }}"
+      delay: 5
 
     - name: Wait for the patched rooted AVD to finish booting
       become: true

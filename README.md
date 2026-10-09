@@ -879,6 +879,25 @@ Android generation explicitly supported by the current rootAVD implementation.
 The playbook cold-boots the patched image, verifies the Magisk application and
 `su`, then stops the emulator.
 
+Before the first headless boot, the role creates the desktop user's
+`~/.android/adbkey`, restarts the ADB server with that key and resets the
+not-yet-provisioned rooted AVD. This lets the emulator trust ADB without an
+authorization dialog. While provisioning is running, inspect its connection and
+boot state from another terminal as the desktop user:
+
+```sh
+adb devices -l
+adb -s emulator-5554 get-state
+adb -s emulator-5554 shell getprop sys.boot_completed
+adb -s emulator-5554 logcat
+```
+
+`get-state` changes to `device` once ADB is authorized. The boot property changes
+to `1` when Android has finished booting. An `unauthorized` state means that the
+running emulator was started with a different or missing host key; stop that
+emulator and rerun the playbook so it can reset the unfinished AVD with the
+prepared key.
+
 rootAVD downloads Magisk using `wget --no-check-certificate`. This is upstream
 behavior and means TLS certificate validation does not protect that download.
 The role verifies that the resulting ramdisk differs from its backup and boots
