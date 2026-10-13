@@ -1049,6 +1049,8 @@ that both archive syncs and signature checks have completed. The initial sync ca
 take several hours depending on the connection and storage speed. The default
 12-hour task limit can be changed with `offline_mirror_sync_timeout`; rerunning
 the sync resumes from the existing mirror rather than starting from nothing.
+Each archive synchronization automatically retries up to three times after a
+transient download failure, reusing packages that were already downloaded.
 
 You can also leave it disabled during the main run and start it separately:
 

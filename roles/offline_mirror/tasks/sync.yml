@@ -66,7 +66,7 @@
       {{ ((offline_mirror_disk_space.stdout_lines[-1] | trim | int) / 1000000000) | round(1) }} GB free;
       more than {{ ((offline_mirror_minimum_free_bytes | int) / 1000000000) | round(1) }} GB is required.
 
-- name: Synchronize the Debian 13 package archive
+- name: Synchronize the Debian 13 package archive (This might take a couple of hours)
   ansible.builtin.command:
     argv: >-
       {{
@@ -82,8 +82,7 @@
          '--diff=use',
          '--state-cache-days=1',
          '--postcleanup',
-         '--checksums',
-         '--progress']
+         '--checksums']
         + (['--source'] if offline_mirror_include_sources | bool else ['--nosource'])
         + (['--getcontents'] if offline_mirror_include_contents | bool else [])
         + [offline_mirror_root + '/debian']
@@ -92,8 +91,11 @@
   poll: 60
   register: offline_mirror_debian_sync
   changed_when: true
+  until: (offline_mirror_debian_sync.rc | default(1)) == 0
+  retries: 3
+  delay: 30
 
-- name: Synchronize the Debian 13 security archive
+- name: Synchronize the Debian 13 security archive (This might take a while)
   ansible.builtin.command:
     argv: >-
       {{
@@ -109,8 +111,7 @@
          '--diff=use',
          '--state-cache-days=1',
          '--postcleanup',
-         '--checksums',
-         '--progress']
+         '--checksums']
         + (['--source'] if offline_mirror_include_sources | bool else ['--nosource'])
         + (['--getcontents'] if offline_mirror_include_contents | bool else [])
         + [offline_mirror_root + '/debian-security']
@@ -119,6 +120,9 @@
   poll: 60
   register: offline_mirror_security_sync
   changed_when: true
+  until: (offline_mirror_security_sync.rc | default(1)) == 0
+  retries: 3
+  delay: 30
 
 - name: Verify synchronized Release signatures
   ansible.builtin.command:
