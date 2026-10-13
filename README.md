@@ -1006,8 +1006,12 @@ enables the Meson VNC option, gives the result a `+deburner1` version suffix,
 installs it as a Debian package, and holds that package for the short burner
 lifecycle. The built `.deb` is retained below
 `/var/cache/deburner/gnome-remote-desktop-vnc`; package-build dependencies remain
-installed. This keeps the local delta visible in package state and lets
-`grdctl vnc` configure GNOME's native Remote Desktop service.
+installed. The local package build uses Debian's `nocheck` build option because
+the upstream test suite includes hardware-dependent TPM tests that cannot run as
+the isolated package-build account. The role validates the installed VNC
+commands, package state, user service and listening socket afterward. This keeps
+the local delta visible in package state and lets `grdctl vnc` configure GNOME's
+native Remote Desktop service.
 
 The role generates an eight-character password, which is the maximum accepted
 by this VNC backend, and stores the operator copy as root-only data. Read it

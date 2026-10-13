@@ -274,6 +274,7 @@
           args:
             chdir: "{{ screen_sharing_source_directory }}"
           environment:
+            DEB_BUILD_OPTIONS: nocheck
             HOME: "{{ screen_sharing_build_root }}"
           changed_when: true
 
