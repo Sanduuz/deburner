@@ -88,7 +88,7 @@ traffic or files.
 - [ ] If the offline mirror is enabled, review its storage path and whether
       source packages or package-content indexes are needed. The default mirror
       stores Debian 13 amd64 and architecture-independent binary packages below
-      `/srv/deburner/mirror`.
+      `/srv/deburner/mirror` and requires more than 300 GB free before syncing.
 - [ ] Review any event VPN, proxy, DNS, CA certificate, radio, or network
       requirements that are outside these playbooks.
 

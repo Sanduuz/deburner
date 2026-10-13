@@ -242,12 +242,12 @@
   ansible.builtin.assert:
     that:
       - (preflight_mirror_disk_space.stdout_lines[-1] | trim | int)
-        > (offline_mirror_minimum_free_bytes | default(400000000000) | int)
+        > (offline_mirror_minimum_free_bytes | default(300000000000) | int)
     fail_msg: >-
       The offline mirror is enabled, but the filesystem containing /srv has only
       {{ ((preflight_mirror_disk_space.stdout_lines[-1] | trim | int)
           / 1000000000) | round(1) }} GB free; more than
-      {{ ((offline_mirror_minimum_free_bytes | default(400000000000) | int)
+      {{ ((offline_mirror_minimum_free_bytes | default(300000000000) | int)
           / 1000000000) | round(1) }} GB is required for
       {{ offline_mirror_root | default('/srv/deburner/mirror') }}.
     success_msg: >-

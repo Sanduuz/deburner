@@ -1,7 +1,7 @@
 ---
 offline_mirror_enabled: false
 offline_mirror_root: /srv/deburner/mirror
-offline_mirror_minimum_free_bytes: 400000000000
+offline_mirror_minimum_free_bytes: 300000000000
 offline_mirror_sync_timeout: 43200
 offline_mirror_archive_keyring: /usr/share/keyrings/debian-archive-keyring.gpg
 

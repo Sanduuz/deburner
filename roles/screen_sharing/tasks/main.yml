@@ -263,6 +263,10 @@
           become_user: deburner-builder
           ansible.builtin.command:
             argv:
+              - /usr/bin/timeout
+              - --signal=TERM
+              - --kill-after=60s
+              - "{{ screen_sharing_build_timeout }}s"
               - dpkg-buildpackage
               - --build=binary
               - --unsigned-buildinfo
@@ -271,9 +275,6 @@
             chdir: "{{ screen_sharing_source_directory }}"
           environment:
             HOME: "{{ screen_sharing_build_root }}"
-          async: "{{ screen_sharing_build_timeout }}"
-          poll: 10
-          register: screen_sharing_package_build
           changed_when: true
 
         - name: Find the locally built package

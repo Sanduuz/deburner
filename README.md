@@ -1067,12 +1067,13 @@ because they are not needed to install packages on the burner. Set
 needed. The sync checks existing package files and verifies Debian's signed
 Release metadata using the archive keyring shipped by Debian.
 
-The 400 GB free-space requirement leaves substantial room for metadata, mirror
-growth, containers, and challenge files. Debian's
+The 300 GB free-space requirement leaves room for metadata and mirror growth,
+including when source packages are selected. Debian's
 [`debmirror` size table](https://sources.debian.org/src/debmirror/1%3A2.49/mirror_size)
-dated 22 June 2026 lists approximately 123 GB of `trixie` `amd64` and
-architecture-independent package payload before security updates and metadata.
-Repository size changes over time, so the threshold is a safety margin rather
+dated 22 June 2026 lists approximately 129 GB of `trixie` `amd64` and
+architecture-independent binary packages, or approximately 242 GB when the
+source archive is included, before security updates and metadata. Repository
+size changes over time, so the threshold is a safety margin rather
 than a guaranteed final size. Source packages need considerably more space.
 
 Synchronization does **not** change APT's active sources. Run the following only
