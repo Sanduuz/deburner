@@ -66,7 +66,7 @@
       {{ ((offline_mirror_disk_space.stdout_lines[-1] | trim | int) / 1000000000) | round(1) }} GB free;
       more than {{ ((offline_mirror_minimum_free_bytes | int) / 1000000000) | round(1) }} GB is required.
 
-- name: Synchronize the Debian 13 package archive (This might take a couple of hours)
+- name: Synchronize the Debian 13 package archive (This might take a while)
   ansible.builtin.command:
     argv: >-
       {{
