@@ -48,6 +48,9 @@
     verification_disable_ssh: >-
       {{ hardening_disable_ssh
          | default(verification_hardening_defaults.hardening_disable_ssh) }}
+    verification_disabled_units: >-
+      {{ hardening_disabled_units
+         | default(verification_hardening_defaults.hardening_disabled_units) }}
     verification_sysctl: >-
       {{ hardening_sysctl
          | default(verification_hardening_defaults.hardening_sysctl) }}
@@ -186,6 +189,48 @@
       - verification_ssh_listener.stdout | trim == ''
     fail_msg: TCP port 22 has a listening socket.
   when: verification_disable_ssh | bool
+
+- name: Read unnecessary systemd unit states
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ item }}"
+  loop: "{{ verification_disabled_units }}"
+  register: verification_disabled_unit_states
+  changed_when: false
+  failed_when: false
+
+- name: Require unnecessary systemd units to be inactive
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim != 'active'
+    fail_msg: "Unnecessary systemd unit remains active: {{ item.item }}"
+  loop: "{{ verification_disabled_unit_states.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read unnecessary systemd unit enablement
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - "{{ item }}"
+  loop: "{{ verification_disabled_units }}"
+  register: verification_disabled_unit_enablement
+  changed_when: false
+  failed_when: false
+
+- name: Require unnecessary systemd units to be masked or absent
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.stdout | trim in ['masked', 'not-found']
+        or item.stderr is search('(?i)(not found|does not exist|no such file)')
+    fail_msg: "Unnecessary systemd unit is not masked: {{ item.item }}"
+  loop: "{{ verification_disabled_unit_enablement.results }}"
+  loop_control:
+    label: "{{ item.item }}"
 
 - name: Check AppArmor status
   ansible.builtin.command:

@@ -556,4 +556,7 @@
           {{ screen_sharing_vnc_port }} for the active {{ screen_sharing_user }}
           session using GNOME Remote Desktop
           {{ screen_sharing_installed_version.stdout | trim }}. Read the generated password with
-          'sudo cat {{ screen_sharing_password_file }}'.
+          'sudo cat {{ screen_sharing_password_file }}'. From the active GNOME
+          user's terminal, use 'grdctl vnc disable-view-only' to allow remote
+          input temporarily and 'grdctl vnc enable-view-only' to restore
+          view-only mode.

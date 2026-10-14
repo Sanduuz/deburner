@@ -72,6 +72,12 @@ CASES = (
         marker="Firewall ports must be YAML integers between 1 and 65535.",
     ),
     ConfigCase(
+        name="invalid disabled systemd unit",
+        values={"hardening_disabled_units": ["cups"]},
+        succeeds=False,
+        marker="Disabled systemd units must be a non-empty list of unique unit names.",
+    ),
+    ConfigCase(
         name="root Docker group user",
         values={"docker_group_users": ["root"]},
         succeeds=False,

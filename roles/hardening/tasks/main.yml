@@ -8,6 +8,18 @@
     fail_msg: Firewall ports must be YAML integers between 1 and 65535.
   loop: "{{ hardening_allowed_tcp_ports + hardening_allowed_udp_ports }}"
 
+- name: Validate disabled systemd units
+  ansible.builtin.assert:
+    that:
+      - hardening_disabled_units | type_debug == 'list'
+      - hardening_disabled_units | length > 0
+      - hardening_disabled_units | unique | length == hardening_disabled_units | length
+      - >-
+        hardening_disabled_units
+        | select('match', '^[A-Za-z0-9@_.-]+[.](service|socket|path|timer)$')
+        | list | length == hardening_disabled_units | length
+    fail_msg: Disabled systemd units must be a non-empty list of unique unit names.
+
 - name: Read service state
   ansible.builtin.service_facts:
 
@@ -64,6 +76,23 @@
   when:
     - hardening_disable_ssh | bool
     - item.stat.exists
+
+- name: Check for installed unnecessary systemd units
+  ansible.builtin.stat:
+    path: "/usr/lib/systemd/system/{{ item }}"
+  loop: "{{ hardening_disabled_units }}"
+  register: hardening_unnecessary_units
+
+- name: Stop and mask unnecessary systemd units
+  ansible.builtin.systemd_service:
+    name: "{{ item.item }}"
+    enabled: false
+    state: stopped
+    masked: true
+  loop: "{{ hardening_unnecessary_units.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
 
 - name: Configure automatic security updates without automatic reboots
   ansible.builtin.template:

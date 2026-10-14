@@ -405,6 +405,13 @@ and `ssh.socket`. Setting it to `false` skips those tasks; it does not undo an
 earlier mask. To deliberately restore SSH, unmask its units, start the desired
 service, and explicitly allow its port in `local.yml`.
 
+The hardening role also stops and masks the CUPS printing and browsing units,
+Avahi mDNS discovery service and socket, and Exim mail transport and maintenance
+units. Their packages remain installed when required by the GNOME package set,
+but they cannot listen or be activated by systemd. Override the complete
+`hardening_disabled_units` list if a burner intentionally needs one of these
+facilities; removing a unit from the list does not undo an earlier mask.
+
 You can override individual values in `hardening_sysctl` by defining the **entire
 mapping** in `local.yml`; Ansible replaces dictionaries by default. Removing a
 previously managed key does not restore its live value automatically. Restore it
@@ -1013,9 +1020,11 @@ commands, package state, user service and listening socket afterward. This keeps
 the local delta visible in package state and lets `grdctl vnc` configure GNOME's
 native Remote Desktop service.
 
-The role generates an eight-character password, which is the maximum accepted
-by this VNC backend, and stores the operator copy as root-only data. Read it
-with:
+The role generates an eight-character password, which is the maximum effective
+length for the classic VNC authentication used by this LibVNCServer backend,
+and stores the operator copy as root-only data. Generating a longer displayed
+password would be misleading because only its first eight characters would
+participate in authentication. Read the password with:
 
 ```sh
 sudo cat /var/lib/deburner/vnc-password
@@ -1025,6 +1034,25 @@ Set `screen_sharing_view_only: false` only when teammates also need keyboard and
 pointer control. Screen sharing follows the active desktop session and stops
 when that session is locked or logged out. Log back in and unlock the desktop
 before reconnecting.
+
+From a terminal in the active GNOME session, temporarily allow remote keyboard
+and pointer input with:
+
+```sh
+grdctl vnc disable-view-only
+```
+
+Restore view-only mode and inspect the current setting with:
+
+```sh
+grdctl vnc enable-view-only
+grdctl status
+```
+
+Run these commands as the logged-in desktop user, without `sudo`, so `grdctl`
+can access that user's session bus and keyring. A later Ansible run reapplies
+`screen_sharing_view_only`; change it in `local.yml` and run
+`make screen-sharing` when remote input should remain enabled.
 
 VNC traffic is not encrypted. The managed firewall exception accepts the port
 on every interface from any IPv4 or IPv6 source, so use this only on a trusted
@@ -1161,6 +1189,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |
+| Unneeded services | Stop and mask CUPS printing, Avahi discovery and Exim mail units while retaining dependency-required packages | Remove unnecessary listeners and socket, path or timer activation from the burner workstation |
 | Updates | Manage `/etc/apt/apt.conf.d/99deburner-updates` | Operator-controlled updates by default; optional security-only unattended upgrades; no automatic reboot |
 | Kernel | Manage `/etc/sysctl.d/90-deburner.conf` and apply it | Restrict kernel pointer/dmesg access; protect links, FIFOs and regular files in sticky directories; reject ICMP redirects; disable IPv4 redirect sending; enable SYN cookies |
 | Firewall | Manage `/etc/deburner/firewall.nft` and `deburner-firewall.service` | Drop unsolicited host input for IPv4/IPv6; allow loopback, established/related connections, ICMP, DHCP replies, and explicit port exceptions |

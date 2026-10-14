@@ -145,6 +145,9 @@ filesystem containing `/srv` has more than 400 GB of capacity and more than
       `sudo cat /var/lib/deburner/vnc-password`, connect from the intended VNC
       client, confirm view-only or input behavior, and confirm that locking the
       GNOME session ends access.
+- [ ] If remote input is temporarily required, run
+      `grdctl vnc disable-view-only` as the logged-in GNOME user. Restore the
+      safer default afterward with `grdctl vnc enable-view-only`.
 - [ ] Close and reopen the login session if Docker group access was enabled,
       then confirm `docker info` works without `sudo`.
 - [ ] Inspect the provisioning inventory when useful:
@@ -195,8 +198,8 @@ APT can later be switched between the two source sets with
       not suspend the machine after the reboot.
 - [ ] Confirm the date, time, time zone, battery health, charger, storage space,
       and event network details.
-- [ ] Review listening sockets with `sudo ss -lntup`. SSH should not listen when
-      `hardening_disable_ssh` has its default value of `true`.
+- [ ] Review listening sockets with `sudo ss -lntup`. SSH, CUPS, Exim and Avahi
+      should not listen with the default hardening configuration.
 - [ ] If VNC is enabled, confirm its selected port is reachable only through the
       trusted event LAN or VPN and is not exposed to the public Internet.
 - [ ] Start no C2 framework, Responder, BloodHound container, packet capture,

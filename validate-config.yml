@@ -125,6 +125,19 @@
         {{ configuration_effective.hardening_allowed_tcp_ports
            + configuration_effective.hardening_allowed_udp_ports }}
 
+    - name: Validate disabled systemd units
+      ansible.builtin.assert:
+        that:
+          - configuration_effective.hardening_disabled_units | type_debug == 'list'
+          - configuration_effective.hardening_disabled_units | length > 0
+          - configuration_effective.hardening_disabled_units | unique | length
+            == configuration_effective.hardening_disabled_units | length
+          - >-
+            configuration_effective.hardening_disabled_units
+            | select('match', '^[A-Za-z0-9@_.-]+[.](service|socket|path|timer)$')
+            | list | length == configuration_effective.hardening_disabled_units | length
+        fail_msg: Disabled systemd units must be a non-empty list of unique unit names.
+
     - name: Validate Docker group users
       ansible.builtin.assert:
         that:

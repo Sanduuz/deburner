@@ -75,6 +75,22 @@ def verify_hardening() -> None:
     service_state("deburner-firewall.service", active="active", enabled={"enabled"})
     service_state("ssh.service", active="inactive", enabled={"masked"})
     service_state("ssh.socket", active="inactive", enabled={"masked"})
+    for unit in (
+        "avahi-daemon.service",
+        "avahi-daemon.socket",
+        "cups-browsed.service",
+        "cups.path",
+        "cups.service",
+        "cups.socket",
+        "exim4-base.service",
+        "exim4-base.timer",
+        "exim4.service",
+    ):
+        unit_path = Path("/usr/lib/systemd/system") / unit
+        if unit_path.exists():
+            service_state(unit, active="inactive", enabled={"masked"})
+        else:
+            record(True, f"{unit} is absent")
     command_succeeds(
         ["nft", "list", "table", "inet", "deburner"], "deburner nftables table is loaded"
     )
