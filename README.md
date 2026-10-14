@@ -518,6 +518,31 @@ that the installed daemon supports the chosen values.
 executables, including Debian's MinGW cross-compilation support. Neither Sliver
 executable is started during provisioning.
 
+Running `sliver-client` before importing an operator profile reports that no
+configuration files exist under `~/.sliver-client/configs`; this is expected.
+For a local single-operator session, run `sliver-server` directly and use its
+interactive console without the separate client. To use the client or share a
+server with teammates, start the server and generate a distinct operator profile
+from its console:
+
+```text
+[server] sliver > new-operator --name sanduuz --lhost 127.0.0.1
+[server] sliver > multiplayer
+```
+
+Import the generated file using the path printed by the server, then start the
+client:
+
+```sh
+sliver-client import /path/to/sanduuz_127.0.0.1.cfg
+sliver-client
+```
+
+Use the server's reachable LAN or VPN address instead of `127.0.0.1` for remote
+operators, and explicitly allow its selected multiplayer port through the host
+firewall. Operator profiles contain private client credentials and should be
+distributed and stored accordingly.
+
 [Metasploit Framework](https://docs.metasploit.com/docs/using-metasploit/getting-started/nightly-installers.html)
 is installed from Rapid7's signed upstream APT repository. The role verifies the
 repository key fingerprint and installs the current upstream package, but does
