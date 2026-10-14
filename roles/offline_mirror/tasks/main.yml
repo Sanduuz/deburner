@@ -9,3 +9,7 @@
 - name: Synchronize the offline mirror
   ansible.builtin.include_tasks: sync.yml
   when: offline_mirror_enabled | bool
+
+- name: Prepare explicit APT mirror mode switching
+  ansible.builtin.include_tasks: setup.yml
+  when: offline_mirror_enabled | bool

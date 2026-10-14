@@ -164,15 +164,21 @@ Skip this section when `offline_mirror_enabled` is `false`.
   make mirror-sync
   ```
 
-- [ ] Refresh the mirror as close to disconnection as practical. Debian Release
-      metadata expires, and the project does not bypass signature or expiry
-      validation.
-- [ ] Activate and validate the local package source only after synchronization
-      succeeds:
+- [ ] Refresh the mirror as close to disconnection as practical. The offline
+      source accepts expired Release metadata, but fresher packages are still
+      preferable. Debian signature verification remains enabled.
+- [ ] After synchronization succeeds, inspect the automatically prepared APT
+      mode. A fresh setup initially reports `online`; later runs preserve the
+      explicitly selected mode:
 
   ```sh
-  make mirror-enable
   deburner-apt-mode status
+  ```
+
+- [ ] Switch explicitly when the machine is ready to disconnect:
+
+  ```sh
+  sudo deburner-apt-mode offline
   ```
 
 - [ ] Remember that this mirror contains Debian packages only. Upstream tools,

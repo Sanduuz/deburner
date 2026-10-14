@@ -566,6 +566,44 @@
     - verification_offline_mirror_enabled | bool
     - not item.skipped | default(false)
 
+- name: Inspect offline mirror mode files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/deburner/apt/sources-offline/deburner.sources
+    - /usr/local/sbin/deburner-apt-mode
+  register: verification_mirror_mode_files
+  when: verification_offline_mirror_enabled | bool
+
+- name: Require offline mirror mode files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Offline mirror mode file is missing: {{ item.item }}"
+  loop: "{{ verification_mirror_mode_files.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - verification_offline_mirror_enabled | bool
+    - not item.skipped | default(false)
+
+- name: Read the configured APT mirror mode
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/deburner-apt-mode
+      - status
+  register: verification_mirror_mode
+  changed_when: false
+  when: verification_offline_mirror_enabled | bool
+
+- name: Require a known APT mirror mode
+  ansible.builtin.assert:
+    that:
+      - verification_mirror_mode.stdout | trim in ['online', 'offline']
+    fail_msg: The managed APT source link does not select a known mirror mode.
+  when: verification_offline_mirror_enabled | bool
+
 - name: Inspect optional BloodHound installation files
   ansible.builtin.stat:
     path: "{{ item }}"

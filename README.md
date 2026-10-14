@@ -338,7 +338,6 @@ ansible-playbook tooling-bloodhound.yml --ask-become-pass \
 ansible-playbook customization.yml --ask-become-pass
 ansible-playbook screen-sharing.yml --ask-become-pass
 ansible-playbook mirror-sync.yml --ask-become-pass
-ansible-playbook mirror-enable.yml --ask-become-pass
 ansible-playbook provision-manifest.yml --ask-become-pass
 ```
 
@@ -351,7 +350,6 @@ make                  # Validate and provision the complete burner
 make verify           # Read-only post-reboot verification
 make screen-sharing   # Configure optional GNOME Wayland VNC sharing
 make mirror-sync      # Synchronize the optional mirror while online
-make mirror-enable    # Validate the mirror and switch APT to it
 make manifest         # Refresh the provisioning inventory
 ```
 
@@ -1084,27 +1082,18 @@ source archive is included, before security updates and metadata. Repository
 size changes over time, so the threshold is a safety margin rather
 than a guaranteed final size. Source packages need considerably more space.
 
-Synchronization does **not** change APT's active sources. Run the following only
-after the sync has completed and immediately before testing offline operation:
-
-```sh
-ansible-playbook mirror-enable.yml --ask-become-pass
-```
-
-The activation playbook verifies all three signed `InRelease` files and prepares
+Synchronization verifies all three signed `InRelease` files and prepares
 two complete source directories under `/etc/deburner/apt`. Existing online source
 fragments are preserved in `sources-online`; the local `file:` definitions are
 written to `sources-offline`. It then replaces `/etc/apt/sources.list.d` with a
-symlink to the selected directory. A legacy `/etc/apt/sources.list`, when present,
-is moved into the online directory so it switches modes with the other sources.
+symlink to the online directory on first setup. A legacy `/etc/apt/sources.list`,
+when present, is moved into the online directory so it switches modes with the
+other sources. The normal `make` workflow and standalone `make mirror-sync`
+target install the mode utility automatically when the offline mirror is enabled;
+neither selects the local mirror.
 
-After selecting the offline directory, the playbook refreshes APT metadata and
-downloads a fresh copy of the `apt` package into a temporary cache. That final
-download proves package retrieval works using only the local mirror; it does not
-reinstall the package.
-
-After the activation playbook, `/usr/local/sbin/deburner-apt-mode` provides a
-direct way to change modes without rerunning Ansible:
+After synchronization, inspect the current mode and explicitly select the desired
+source with `/usr/local/sbin/deburner-apt-mode`:
 
 ```sh
 deburner-apt-mode status
@@ -1119,10 +1108,14 @@ runs `apt-get update` after switching. If the update fails, it restores the
 previous source directory automatically. The `status` command does not require
 root; changing modes does.
 
-Refresh the mirror shortly before disconnecting. Debian security metadata has an
-expiry time which APT continues to enforce; this project does not disable
-signature or expiry verification. The mirror covers Debian packages only. It
-does not contain upstream Docker packages, container images, Git repositories,
+Refresh the mirror shortly before disconnecting so it contains the latest
+available packages. The local source definitions disable APT's `Valid-Until`
+check, allowing an unchanged mirror to remain usable after its signed Release
+metadata expires during an extended offline period. Debian signature verification
+remains enabled, and this exception applies only in offline mode; switching back
+to the preserved online sources restores their normal expiry policy. The mirror
+covers Debian packages only. It does not contain upstream Docker packages,
+container images, Git repositories,
 Python package indexes, Rust, uv, Volatility, Zed, Firefox extensions, Ghidra,
 Binary Ninja, radare2,
 Impacket, Certipy, NetExec, Responder, Chisel, Ligolo-ng, Sliver, Metasploit,
@@ -1190,7 +1183,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, a fresh unencrypted Ed25519 identity, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults and a burner-only SSH identity |
 | Screen sharing | Optionally rebuild Debian's GNOME Remote Desktop package with LibVNCServer support, configure password-authenticated VNC for the active GNOME Wayland session, and default to view-only access | Provide standard VNC/RFB screen viewing without switching GNOME to Xorg; explicitly opens the selected host port and requires a trusted LAN or VPN |
-| Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; provide validated activation and `deburner-apt-mode` switching | Permit Debian package installation after disconnecting without exposing a mirror service or silently changing APT during synchronization |
+| Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; automatically prepare `deburner-apt-mode` while leaving the initial online mode selected | Permit Debian package installation after disconnecting without exposing a mirror service or changing modes without an explicit operator command |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
 | Orchestration | Add `deburner.yml`, logged Makefile operator targets and automatic `local.yml` loading | Stream and retain output while running the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, inventory generation, preflight and verification workflows |
 | Configuration validation | Merge operator overrides over all role defaults and validate supported names, types, ranges and optional-feature dependencies before operator workflows | Catch misspelled or incompatible `local.yml` values locally before lengthy downloads or privileged changes begin |

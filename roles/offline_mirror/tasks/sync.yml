@@ -141,6 +141,5 @@
   ansible.builtin.debug:
     msg: >-
       The online mirror sync completed and its Release signatures verified. APT
-      still uses its existing online sources. Run mirror-enable.yml explicitly
-      when you are ready to prepare the source layout, install the mode utility,
-      and switch APT to the local mirror.
+      still uses its existing online sources. The role will now prepare the source
+      layout and install the mode utility without selecting the local mirror.
