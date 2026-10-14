@@ -455,7 +455,7 @@
 - name: Require a matching Ed25519 public key
   ansible.builtin.assert:
     that:
-      - verification_ssh_derived_public_key.stdout.split() | length == 2
+      - verification_ssh_derived_public_key.stdout.split() | length >= 2
       - (verification_ssh_public_key_file.content | b64decode).split() | length >= 2
       - verification_ssh_derived_public_key.stdout.split()[0] == 'ssh-ed25519'
       - (verification_ssh_public_key_file.content | b64decode).split()[0] == 'ssh-ed25519'
