@@ -201,6 +201,8 @@ APT can later be switched between the two source sets with
       and event network details.
 - [ ] Review listening sockets with `sudo ss -lntup`. SSH, CUPS, Exim and Avahi
       should not listen with the default hardening configuration.
+- [ ] Confirm Bluetooth is disabled unless the event requires it. Start it for
+      the current boot with `sudo systemctl start bluetooth.service` if needed.
 - [ ] If VNC is enabled, confirm its selected port is reachable only through the
       trusted event LAN or VPN and is not exposed to the public Internet.
 - [ ] Start no C2 framework, Responder, BloodHound container, packet capture,

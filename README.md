@@ -412,6 +412,11 @@ but they cannot listen or be activated by systemd. Override the complete
 `hardening_disabled_units` list if a burner intentionally needs one of these
 facilities; removing a unit from the list does not undo an earlier mask.
 
+Bluetooth is stopped and disabled at boot, but remains unmasked. Start it for an
+event with `sudo systemctl start bluetooth.service`; this enables it for the
+current boot without enabling automatic startup on later boots. The separate
+`hardening_disabled_startable_units` list controls services with this behavior.
+
 You can override individual values in `hardening_sysctl` by defining the **entire
 mapping** in `local.yml`; Ansible replaces dictionaries by default. Removing a
 previously managed key does not restore its live value automatically. Restore it
@@ -1238,7 +1243,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Packages | Install `apparmor`, `apparmor-utils`, `nftables`, `unattended-upgrades`, `ca-certificates`; apply safe APT upgrades by default | Prepare baseline protections and current packages |
 | AppArmor | Enable and start `apparmor.service` | Load installed profiles; applications without profiles remain unconfined |
 | SSH | Stop, disable, and mask SSH service/socket when present | Remove unnecessary remote login exposure; SSH clients remain available |
-| Unneeded services | Stop and mask CUPS printing, Avahi discovery and Exim mail units while retaining dependency-required packages | Remove unnecessary listeners and socket, path or timer activation from the burner workstation |
+| Unneeded services | Stop and mask CUPS printing, Avahi discovery and Exim mail units; stop and disable Bluetooth while leaving it manually startable; retain dependency-required packages | Remove unnecessary listeners and automatic radio startup from the burner workstation while allowing explicit temporary Bluetooth use |
 | Updates | Manage `/etc/apt/apt.conf.d/99deburner-updates` | Operator-controlled updates by default; optional security-only unattended upgrades; no automatic reboot |
 | Kernel | Manage `/etc/sysctl.d/90-deburner.conf` and apply it | Restrict kernel pointer/dmesg access; protect links, FIFOs and regular files in sticky directories; reject ICMP redirects; disable IPv4 redirect sending; enable SYN cookies |
 | Firewall | Manage `/etc/deburner/firewall.nft` and `deburner-firewall.service` | Drop unsolicited host input for IPv4/IPv6; allow loopback, established/related connections, ICMP, DHCP replies, and explicit port exceptions |

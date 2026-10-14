@@ -137,6 +137,19 @@
             configuration_effective.hardening_disabled_units
             | select('match', '^[A-Za-z0-9@_.-]+[.](service|socket|path|timer)$')
             | list | length == configuration_effective.hardening_disabled_units | length
+          - configuration_effective.hardening_disabled_startable_units | type_debug == 'list'
+          - configuration_effective.hardening_disabled_startable_units | length > 0
+          - configuration_effective.hardening_disabled_startable_units | unique | length
+            == configuration_effective.hardening_disabled_startable_units | length
+          - >-
+            configuration_effective.hardening_disabled_startable_units
+            | select('match', '^[A-Za-z0-9@_.-]+[.](service|socket|path|timer)$')
+            | list | length
+            == configuration_effective.hardening_disabled_startable_units | length
+          - >-
+            configuration_effective.hardening_disabled_units
+            | intersect(configuration_effective.hardening_disabled_startable_units)
+            | length == 0
         fail_msg: Disabled systemd units must be a non-empty list of unique unit names.
 
     - name: Validate Docker group users

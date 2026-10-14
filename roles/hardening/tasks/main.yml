@@ -18,6 +18,15 @@
         hardening_disabled_units
         | select('match', '^[A-Za-z0-9@_.-]+[.](service|socket|path|timer)$')
         | list | length == hardening_disabled_units | length
+      - hardening_disabled_startable_units | type_debug == 'list'
+      - hardening_disabled_startable_units | length > 0
+      - hardening_disabled_startable_units | unique | length
+        == hardening_disabled_startable_units | length
+      - >-
+        hardening_disabled_startable_units
+        | select('match', '^[A-Za-z0-9@_.-]+[.](service|socket|path|timer)$')
+        | list | length == hardening_disabled_startable_units | length
+      - hardening_disabled_units | intersect(hardening_disabled_startable_units) | length == 0
     fail_msg: Disabled systemd units must be a non-empty list of unique unit names.
 
 - name: Read service state
@@ -90,6 +99,23 @@
     state: stopped
     masked: true
   loop: "{{ hardening_unnecessary_units.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+
+- name: Check for installed manually startable systemd units
+  ansible.builtin.stat:
+    path: "/usr/lib/systemd/system/{{ item }}"
+  loop: "{{ hardening_disabled_startable_units }}"
+  register: hardening_startable_units
+
+- name: Stop and disable manually startable systemd units
+  ansible.builtin.systemd_service:
+    name: "{{ item.item }}"
+    enabled: false
+    state: stopped
+    masked: false
+  loop: "{{ hardening_startable_units.results }}"
   loop_control:
     label: "{{ item.item }}"
   when: item.stat.exists

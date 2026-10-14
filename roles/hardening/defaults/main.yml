@@ -19,6 +19,11 @@ hardening_disabled_units:
   - exim4-base.timer
   - exim4.service
 
+# Stop and disable these services at boot without masking them, so an operator
+# can still start one explicitly for an event.
+hardening_disabled_startable_units:
+  - bluetooth.service
+
 # These ports are reachable from ANY network. Prefer event-specific overrides.
 hardening_allowed_tcp_ports: []
 hardening_allowed_udp_ports: []

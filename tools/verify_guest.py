@@ -91,6 +91,11 @@ def verify_hardening() -> None:
             service_state(unit, active="inactive", enabled={"masked"})
         else:
             record(True, f"{unit} is absent")
+    bluetooth_unit = Path("/usr/lib/systemd/system/bluetooth.service")
+    if bluetooth_unit.exists():
+        service_state("bluetooth.service", active="inactive", enabled={"disabled"})
+    else:
+        record(True, "bluetooth.service is absent")
     command_succeeds(
         ["nft", "list", "table", "inet", "deburner"], "deburner nftables table is loaded"
     )

@@ -51,6 +51,9 @@
     verification_disabled_units: >-
       {{ hardening_disabled_units
          | default(verification_hardening_defaults.hardening_disabled_units) }}
+    verification_disabled_startable_units: >-
+      {{ hardening_disabled_startable_units
+         | default(verification_hardening_defaults.hardening_disabled_startable_units) }}
     verification_sysctl: >-
       {{ hardening_sysctl
          | default(verification_hardening_defaults.hardening_sysctl) }}
@@ -229,6 +232,48 @@
         or item.stderr is search('(?i)(not found|does not exist|no such file)')
     fail_msg: "Unnecessary systemd unit is not masked: {{ item.item }}"
   loop: "{{ verification_disabled_unit_enablement.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read manually startable service states
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ item }}"
+  loop: "{{ verification_disabled_startable_units }}"
+  register: verification_startable_unit_states
+  changed_when: false
+  failed_when: false
+
+- name: Require manually startable services to be inactive
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim != 'active'
+    fail_msg: "Disabled manually startable unit remains active: {{ item.item }}"
+  loop: "{{ verification_startable_unit_states.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read manually startable service enablement
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - "{{ item }}"
+  loop: "{{ verification_disabled_startable_units }}"
+  register: verification_startable_unit_enablement
+  changed_when: false
+  failed_when: false
+
+- name: Require manually startable services to be disabled or absent
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.stdout | trim in ['disabled', 'not-found']
+        or item.stderr is search('(?i)(not found|does not exist|no such file)')
+    fail_msg: "Manually startable unit is not disabled: {{ item.item }}"
+  loop: "{{ verification_startable_unit_enablement.results }}"
   loop_control:
     label: "{{ item.item }}"
 
