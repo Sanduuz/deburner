@@ -20,4 +20,5 @@ tooling_c2_tuoni_repository: https://github.com/shell-dot/tuoni.git
 tooling_c2_tuoni_install_dir: /srv/tuoni
 tooling_c2_tuoni_stage_images: true
 tooling_c2_tuoni_pull_timeout: 3600
+tooling_c2_tuoni_force_update: false
 tooling_c2_yq_download_url: https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64

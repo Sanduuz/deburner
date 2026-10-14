@@ -549,6 +549,18 @@ when invoking this category playbook directly.
 Run `ansible-playbook tooling-c2.yml --ask-become-pass` to apply the C2 tooling
 changes without querying or updating Binary Ninja or other tooling categories.
 
+If a Tuoni update stops because its checkout contains modified tracked source
+files, inspect them first with `git -C /srv/tuoni status --short`. To discard
+those source changes for one playbook run while retaining Tuoni's ignored
+configuration, keys, logs and data, run:
+
+```sh
+ansible-playbook tooling-c2.yml --ask-become-pass \
+  --extra-vars '{"tooling_c2_tuoni_force_update": true}'
+```
+
+The override defaults back to `false` on the next invocation.
+
 ### Core tooling
 
 `tooling-core.yml` installs a general command-line and build environment. Its

@@ -87,6 +87,7 @@
         - hardening_disable_ssh
         - docker_live_restore
         - tooling_c2_tuoni_stage_images
+        - tooling_c2_tuoni_force_update
         - tooling_bloodhound_enabled
         - tooling_mobile_android_studio_enabled
         - tooling_mobile_android_licenses_accepted

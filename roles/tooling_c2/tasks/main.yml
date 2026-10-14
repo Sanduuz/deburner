@@ -16,6 +16,7 @@
       - tooling_c2_tuoni_repository == 'https://github.com/shell-dot/tuoni.git'
       - tooling_c2_tuoni_install_dir == '/srv/tuoni'
       - tooling_c2_tuoni_stage_images | type_debug == 'bool'
+      - tooling_c2_tuoni_force_update | type_debug == 'bool'
       - tooling_c2_tuoni_pull_timeout | int >= 600
       - tooling_c2_yq_download_url == 'https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64'
     fail_msg: Review the C2 tooling variables; one or more values are invalid.
