@@ -433,10 +433,11 @@ running as the account a direct path to root privileges, which is intentional fo
 this disposable CTF workstation. The rule applies only to the selected account.
 
 GNOME uses its dark color preference and the dark Adwaita GTK theme. The role
-also configures click-to-focus, a one-hour screen idle delay, US and Finnish
-keyboard layouts, two-finger natural touchpad scrolling, a 24-hour clock with
-seconds and weekday, battery percentage, disabled hot corners, and calendar week
-numbers. Automatic media mounting and opening are disabled.
+also configures click-to-focus, US and Finnish keyboard layouts, two-finger
+natural touchpad scrolling, a 24-hour clock with seconds and weekday, battery
+percentage, disabled hot corners, and calendar week numbers. Automatic screen
+blanking, idle dimming, low-battery power-saver activation, media mounting and
+media opening are disabled.
 
 GNOME automatic suspend is disabled on AC and battery power. A systemd-logind
 drop-in ignores lid-close events on battery, external power, and while docked.

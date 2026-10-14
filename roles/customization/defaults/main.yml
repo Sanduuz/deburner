@@ -26,7 +26,13 @@ customization_gnome_settings:
     value: "'click'"
   - schema: org.gnome.desktop.session
     key: idle-delay
-    value: uint32 3600
+    value: uint32 0
+  - schema: org.gnome.settings-daemon.plugins.power
+    key: idle-dim
+    value: 'false'
+  - schema: org.gnome.settings-daemon.plugins.power
+    key: power-saver-profile-on-low-battery
+    value: 'false'
   - schema: org.gnome.settings-daemon.plugins.power
     key: sleep-inactive-ac-timeout
     value: '0'

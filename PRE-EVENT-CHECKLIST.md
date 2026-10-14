@@ -194,8 +194,9 @@ APT can later be switched between the two source sets with
 
 ## 7. Final event readiness
 
-- [ ] Confirm that automatic suspend is disabled and that closing the lid does
-      not suspend the machine after the reboot.
+- [ ] Confirm that automatic suspend, screen blanking, screen dimming and
+      automatic power-saver activation are disabled, and that closing the lid
+      does not suspend the machine after the reboot.
 - [ ] Confirm the date, time, time zone, battery health, charger, storage space,
       and event network details.
 - [ ] Review listening sockets with `sudo ss -lntup`. SSH, CUPS, Exim and Avahi
