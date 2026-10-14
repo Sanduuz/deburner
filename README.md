@@ -524,6 +524,12 @@ repository key fingerprint and installs the current upstream package, but does
 not run `msfdb init` or start `msfconsole`. Initialize its local database
 explicitly with `sudo msfdb init` if an exercise needs it.
 
+Update the packaged installation by rerunning `tooling-c2.yml` or with
+`sudo apt update && sudo apt install --only-upgrade metasploit-framework`.
+Do not use `sudo msfupdate`: its packaged updater rewrites the APT source with a
+different keyring path. The C2 role removes that conflicting source before its
+first APT operation, so rerunning the playbook also repairs this condition.
+
 The role checks out the current [Tuoni](https://docs.tuoni.io/HowToUse/SettingUpTheC2.html)
 source under `/srv/tuoni` and, by default, pulls its server, client, documentation,
 utility and nginx container images so they remain available after disconnecting.

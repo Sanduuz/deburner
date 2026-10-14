@@ -46,11 +46,6 @@
     group: root
     mode: '0644'
 
-- name: Remove the legacy Metasploit source definition
-  ansible.builtin.file:
-    path: /etc/apt/sources.list.d/metasploit-framework.list
-    state: absent
-
 - name: Install the latest Metasploit Framework package  # noqa package-latest
   ansible.builtin.apt:
     name: metasploit-framework

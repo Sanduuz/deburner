@@ -20,6 +20,11 @@
       - tooling_c2_yq_download_url == 'https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64'
     fail_msg: Review the C2 tooling variables; one or more values are invalid.
 
+- name: Remove the conflicting source written by msfupdate
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/metasploit-framework.list
+    state: absent
+
 - name: Install C2 tooling dependencies
   ansible.builtin.apt:
     name: "{{ tooling_c2_packages }}"
