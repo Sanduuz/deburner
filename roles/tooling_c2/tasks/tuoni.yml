@@ -204,6 +204,7 @@
     src: /usr/local/bin/yq
     dest: "{{ tooling_c2_tuoni_install_dir }}/scripts/tools/yq"
     state: link
+    force: true
     owner: "{{ tooling_c2_tuoni_user }}"
     group: "{{ tooling_c2_tuoni_group }}"
 
