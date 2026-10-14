@@ -161,6 +161,8 @@ verification_required_system_files:
   - /usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi
   - /usr/local/share/applications/cyberchef.desktop
   - /usr/local/sbin/deburner-provision-manifest
+  - /usr/share/doc/fzf/examples/completion.bash
+  - /usr/share/doc/fzf/examples/key-bindings.bash
   - /var/lib/deburner/provision-manifest.json
   - /srv/tuoni/tuoni
 

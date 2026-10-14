@@ -186,7 +186,7 @@
           --preview-window right,50%"
 
       export FZF_ALT_C_OPTS="--preview 'tree -C {}'"
-      source /usr/share/bash-completion/completions/fzf
+      source /usr/share/doc/fzf/examples/completion.bash
       export FZF_COMPLETION_OPTS='--border --info=inline'
 
       _fzf_compgen_path() {

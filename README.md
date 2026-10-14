@@ -448,7 +448,9 @@ managed `.bash_aliases` block provides `copy`, `bat`, and `rot13` aliases.
 The customization dependencies include fzf, fd-find (`fdfind`), ripgrep, bat,
 wl-clipboard, and the commands used by the configured previews. The managed fzf
 configuration enables key bindings, completions, fd-based path generation, and
-command-specific previews. Its `fzf-preview.sh` helper is installed in `~/bin`.
+command-specific previews. It loads the key bindings and completion definitions
+directly from the scripts shipped by Debian's `fzf` package. Its
+`fzf-preview.sh` helper is installed in `~/bin`.
 Debian's default login profile adds that directory to `PATH` after the next login.
 
 The managed Zed settings enable Vim mode, use the Sublime Text keymap and a dark
