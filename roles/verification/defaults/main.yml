@@ -123,6 +123,7 @@ verification_required_commands:
   - wireshark
   - wifite
   - wl-copy
+  - yq
   - yara
   - ysoserial
   - zed

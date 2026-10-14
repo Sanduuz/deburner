@@ -356,6 +356,48 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Inspect the Tuoni working tree
+  ansible.builtin.stat:
+    path: /srv/tuoni
+  register: verification_tuoni_directory
+
+- name: Require a user-owned Tuoni working tree
+  ansible.builtin.assert:
+    that:
+      - verification_tuoni_directory.stat.exists
+      - verification_tuoni_directory.stat.isdir
+      - verification_tuoni_directory.stat.uid | string == verification_uid | string
+    fail_msg: /srv/tuoni is not owned by the selected desktop user.
+
+- name: Inspect Tuoni's yq command
+  ansible.builtin.stat:
+    path: /srv/tuoni/scripts/tools/yq
+    follow: false
+  register: verification_tuoni_yq
+
+- name: Require Tuoni to use the upstream yq command
+  ansible.builtin.assert:
+    that:
+      - verification_tuoni_yq.stat.exists
+      - verification_tuoni_yq.stat.islnk
+      - verification_tuoni_yq.stat.lnk_source == '/usr/local/bin/yq'
+    fail_msg: Tuoni's yq command does not point to /usr/local/bin/yq.
+
+- name: Read the installed yq version
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/yq
+      - --version
+  register: verification_yq_version
+  changed_when: false
+
+- name: Require upstream yq version 4
+  ansible.builtin.assert:
+    that:
+      - verification_yq_version.stdout is search('mikefarah/yq')
+      - verification_yq_version.stdout is search('version v4[.]')
+    fail_msg: /usr/local/bin/yq is not the expected upstream Mike Farah yq v4 command.
+
 - name: Read the managed Firefox policy
   ansible.builtin.slurp:
     src: /etc/firefox/policies/policies.json

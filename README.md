@@ -527,16 +527,21 @@ explicitly with `sudo msfdb init` if an exercise needs it.
 The role checks out the current [Tuoni](https://docs.tuoni.io/HowToUse/SettingUpTheC2.html)
 source under `/srv/tuoni` and, by default, pulls its server, client, documentation,
 utility and nginx container images so they remain available after disconnecting.
+The working tree belongs to the selected desktop user so Tuoni can create its
+first-run configuration. The role also installs the current upstream Mike Farah
+`yq` v4 command as `/usr/local/bin/yq` and links it into Tuoni's tool directory.
 It does not create Tuoni credentials or certificates, start its containers,
-expose ports, or change the firewall. Run `sudo tuoni start` when needed; Tuoni
-will then prompt for its local credentials and initialize its configuration. Use
-`sudo tuoni print-credentials` to inspect those credentials later and
-`sudo tuoni stop` to stop its containers.
+expose ports, or change the firewall. Run `tuoni start` as the desktop user when
+needed; Tuoni will then prompt for its local credentials and initialize its
+configuration. Use `tuoni print-credentials` to inspect those credentials later
+and `tuoni stop` to stop its containers.
 
 Set `tooling_c2_tuoni_stage_images: false` in `local.yml` to install Tuoni's
 source without downloading its images during provisioning. The dependency
 package list can be replaced with `tooling_c2_packages`. Run `docker.yml` first
 when invoking this category playbook directly.
+Run `ansible-playbook tooling-c2.yml --ask-become-pass` to apply the C2 tooling
+changes without querying or updating Binary Ninja or other tooling categories.
 
 ### Core tooling
 
@@ -1198,7 +1203,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Network tooling | Install diagnostics, VPN clients, scanners and packet-capture tools; keep unprivileged capture disabled | Support event connectivity and network analysis without opening inbound services |
 | Wireless tooling | Install Debian's Aircrack-ng, hcxdumptool/hcxtools, WPS, capture-visualization and radio-management utilities without changing interface state | Support authorized 802.11 capture and assessment while leaving radio changes and active transmissions under operator control |
 | Pivoting tooling | Install Debian's sshuttle and current checksum-described Chisel and Ligolo-ng releases; leave listeners, routes and interfaces unconfigured | Provide on-demand tunnelling and pivoting clients and servers without changing network state during provisioning |
-| C2 tooling | Install current checksum-described Sliver client/server binaries and Rapid7's signed Metasploit package; stage current Tuoni source and container images without initializing or starting the frameworks | Keep Sliver, Metasploit and Tuoni available for authorized exercises while leaving listeners, application containers and local C2 configuration under operator control |
+| C2 tooling | Install current checksum-described Sliver client/server binaries and Rapid7's signed Metasploit package; stage current Tuoni source and container images; install upstream `yq` v4 and keep Tuoni user-writable without initializing or starting the frameworks | Keep Sliver, Metasploit and Tuoni available for authorized exercises while leaving listeners, application containers and local C2 configuration under operator control |
 | Analysis tooling | Install on-demand tracing, process inspection, file forensics, metadata, recovery and database client tools; install uv with isolated Volatility 3 and legacy standalone Volatility 2 | Support challenge analysis and live troubleshooting without enabling audit or collection services or modifying the system Python environment |
 | Crypto / CTF tooling | Install hashID, current-commit RsaCtfTool in an isolated uv environment, complete conda-forge SageMath through checksum-described micromamba, and the checksum-described current CyberChef standalone application | Provide RSA and Sage-backed attacks, mathematics, hash identification, encoding, encryption and data-transformation utilities without starting a local web service |
 | Steganography / media tooling | Install Debian media and steganography packages, isolated current zsteg, and the checksum-verified official StegSolve v1.4 JAR | Support hidden-data, image-plane, audio-spectrum, transcoding and file-carving challenges with command-line and graphical tools |
@@ -1278,7 +1283,7 @@ command -v git rg python3 pipx go rustup rustc rust-analyzer cargo clippy-driver
 command -v aircrack-ng airmon-ng airodump-ng aireplay-ng airgraph-ng hcxdumptool hcxpcapngtool iw iwconfig rfkill wavemon horst
 command -v reaver bully pixiewps wifite cowpatty mdk4 macchanger
 command -v chisel sshuttle ligolo-agent ligolo-proxy
-command -v sliver-client sliver-server msfconsole msfvenom tuoni
+command -v sliver-client sliver-server msfconsole msfvenom tuoni yq
 rustup --version
 rustc --version
 cargo --version

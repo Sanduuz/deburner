@@ -317,6 +317,7 @@ def verify_tooling() -> None:
         "wg",
         "wl-copy",
         "wifite",
+        "yq",
         "yara",
         "ysoserial",
         "zed",
@@ -388,6 +389,22 @@ def verify_tooling() -> None:
 def verify_c2_staging() -> None:
     version_path = Path("/srv/tuoni/version.yml")
     file_exists(str(version_path))
+    file_exists("/srv/tuoni/scripts/tools/yq", executable=True)
+    yq_link = Path("/srv/tuoni/scripts/tools/yq")
+    record(
+        yq_link.is_symlink() and yq_link.resolve() == Path("/usr/local/bin/yq"),
+        "Tuoni uses the system upstream yq command",
+    )
+    try:
+        tuoni_owner = version_path.stat().st_uid
+        desktop_owner = Path("/home/debian").stat().st_uid
+    except OSError as error:
+        record(False, "Tuoni working tree belongs to the desktop user", str(error))
+    else:
+        record(
+            tuoni_owner == desktop_owner,
+            "Tuoni working tree belongs to the desktop user",
+        )
     try:
         version_text = version_path.read_text()
     except OSError as error:

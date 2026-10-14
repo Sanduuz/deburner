@@ -1,4 +1,116 @@
 ---
+- name: Validate the Tuoni configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - tooling_c2_tuoni_repository == 'https://github.com/shell-dot/tuoni.git'
+      - tooling_c2_tuoni_install_dir == '/srv/tuoni'
+      - tooling_c2_tuoni_stage_images | type_debug == 'bool'
+      - tooling_c2_tuoni_pull_timeout | int >= 600
+      - tooling_c2_yq_download_url == 'https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64'
+    fail_msg: Review the Tuoni tooling variables; one or more values are invalid.
+
+- name: Resolve the desktop user for Tuoni
+  ansible.builtin.command:
+    argv:
+      - getent
+      - passwd
+      - "{{ customization_user if customization_user | length > 0 else '1000' }}"
+  register: tooling_c2_tuoni_passwd
+  changed_when: false
+  failed_when: false
+
+- name: Require a valid non-root Tuoni user
+  ansible.builtin.assert:
+    that:
+      - tooling_c2_tuoni_passwd.rc == 0
+      - tooling_c2_tuoni_passwd.stdout_lines | length == 1
+      - tooling_c2_tuoni_passwd.stdout.split(':') | length == 7
+      - tooling_c2_tuoni_passwd.stdout.split(':')[0] != 'root'
+      - tooling_c2_tuoni_passwd.stdout.split(':')[2] | int >= 1000
+      - tooling_c2_tuoni_passwd.stdout.split(':')[5] is match('^/home/[^/]+$')
+    fail_msg: >-
+      The Tuoni account could not be resolved safely. Set customization_user in
+      local.yml to the intended non-root desktop account.
+
+- name: Record the Tuoni account
+  ansible.builtin.set_fact:
+    tooling_c2_tuoni_user: "{{ tooling_c2_tuoni_passwd.stdout.split(':')[0] }}"
+    tooling_c2_tuoni_group: "{{ tooling_c2_tuoni_passwd.stdout.split(':')[3] }}"
+    tooling_c2_tuoni_home: "{{ tooling_c2_tuoni_passwd.stdout.split(':')[5] }}"
+
+- name: Install Tuoni dependencies
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - git
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check Docker and Compose availability for Tuoni
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - compose
+      - version
+  changed_when: false
+
+- name: Check the Docker daemon for Tuoni
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - info
+  changed_when: false
+
+- name: Create the Tuoni artifact cache
+  ansible.builtin.file:
+    path: /var/cache/deburner
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the current upstream yq executable
+  ansible.builtin.get_url:
+    url: "{{ tooling_c2_yq_download_url }}"
+    dest: /var/cache/deburner/yq-linux-amd64
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Validate the upstream yq executable
+  ansible.builtin.command:
+    argv:
+      - /var/cache/deburner/yq-linux-amd64
+      - --version
+  register: tooling_c2_yq_version
+  changed_when: false
+  failed_when: >-
+    tooling_c2_yq_version.rc != 0 or
+    tooling_c2_yq_version.stdout is not search('mikefarah/yq') or
+    tooling_c2_yq_version.stdout is not search('version v4[.]')
+
+- name: Install the upstream yq command
+  ansible.builtin.copy:
+    src: /var/cache/deburner/yq-linux-amd64
+    dest: /usr/local/bin/yq
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create the user-owned Tuoni working tree
+  ansible.builtin.file:
+    path: "{{ tooling_c2_tuoni_install_dir }}"
+    state: directory
+    owner: "{{ tooling_c2_tuoni_user }}"
+    group: "{{ tooling_c2_tuoni_group }}"
+    mode: '0755'
+    recurse: true
+
 - name: Resolve the current Tuoni source revision
   ansible.builtin.command:
     argv:
@@ -29,6 +141,10 @@
     version: "{{ tooling_c2_tuoni_commit }}"
     recursive: false
     update: true
+  become: true
+  become_user: "{{ tooling_c2_tuoni_user }}"
+  environment:
+    HOME: "{{ tooling_c2_tuoni_home }}"
 
 - name: Read the Tuoni version declaration
   ansible.builtin.slurp:
@@ -68,10 +184,26 @@
     src: "{{ tooling_c2_tuoni_install_dir }}/config/example/example.tuoni.env"
     dest: "{{ tooling_c2_tuoni_install_dir }}/config/tuoni.env"
     remote_src: true
-    owner: root
-    group: root
+    owner: "{{ tooling_c2_tuoni_user }}"
+    group: "{{ tooling_c2_tuoni_group }}"
     mode: '0600'
   when: not tooling_c2_tuoni_environment.stat.exists
+
+- name: Create the Tuoni tool directory
+  ansible.builtin.file:
+    path: "{{ tooling_c2_tuoni_install_dir }}/scripts/tools"
+    state: directory
+    owner: "{{ tooling_c2_tuoni_user }}"
+    group: "{{ tooling_c2_tuoni_group }}"
+    mode: '0755'
+
+- name: Provide upstream yq to Tuoni
+  ansible.builtin.file:
+    src: /usr/local/bin/yq
+    dest: "{{ tooling_c2_tuoni_install_dir }}/scripts/tools/yq"
+    state: link
+    owner: "{{ tooling_c2_tuoni_user }}"
+    group: "{{ tooling_c2_tuoni_group }}"
 
 - name: Check for staged Tuoni container images
   ansible.builtin.command:
@@ -112,3 +244,11 @@
     owner: root
     group: root
     mode: '0755'
+
+- name: Keep the Tuoni working tree writable by the desktop user
+  ansible.builtin.file:
+    path: "{{ tooling_c2_tuoni_install_dir }}"
+    state: directory
+    owner: "{{ tooling_c2_tuoni_user }}"
+    group: "{{ tooling_c2_tuoni_group }}"
+    recurse: true
