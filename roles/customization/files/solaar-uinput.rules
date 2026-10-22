@@ -1,0 +1,2 @@
+# Solaar uses uinput to emit synthetic key presses under Wayland.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

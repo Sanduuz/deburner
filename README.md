@@ -471,6 +471,9 @@ button diversion, DPI, scrolling and SmartShift settings plus the gesture rules
 for Pause, maximum/minimum display brightness and the notification gesture.
 GNOME Shell maps the synthetic `Pause` key from a thumb-button press to Activities
 Overview. `brightnessctl` and `notify-send` are installed for the other actions.
+The role loads the kernel `uinput` module and grants the active desktop session
+access to `/dev/uinput`, which Solaar needs to emit synthetic key presses on
+Wayland.
 To start Solaar in the current graphical session without logging out, run:
 
 ```sh

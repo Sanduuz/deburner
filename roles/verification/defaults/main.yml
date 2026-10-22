@@ -138,6 +138,8 @@ verification_required_system_files:
   - /etc/docker/daemon.json
   - /etc/gdb/gdbinit.d/peda.gdb
   - /etc/firefox/policies/policies.json
+  - /etc/modules-load.d/deburner-uinput.conf
+  - /etc/udev/rules.d/42-deburner-solaar-uinput.rules
   - /etc/xdg/autostart/solaar.desktop
   - /etc/sudoers.d/deburner-desktop-user
   - /etc/systemd/logind.conf.d/90-deburner-lid-switch.conf

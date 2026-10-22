@@ -357,6 +357,8 @@ def verify_tooling() -> None:
     file_exists("/opt/ysoserial/ysoserial-all.jar")
     file_exists("/usr/share/seclists/README.md")
     file_exists("/etc/xdg/autostart/solaar.desktop")
+    file_exists("/etc/modules-load.d/deburner-uinput.conf")
+    file_exists("/etc/udev/rules.d/42-deburner-solaar-uinput.rules")
     file_exists("/usr/lib/udev/rules.d/60-solaar.rules")
     firefox_policy_path = Path("/etc/firefox/policies/policies.json")
     firefox_extension_path = Path(

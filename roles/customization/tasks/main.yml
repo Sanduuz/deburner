@@ -48,6 +48,47 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Load uinput automatically for Solaar key actions
+  ansible.builtin.copy:
+    content: "uinput\n"
+    dest: /etc/modules-load.d/deburner-uinput.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Allow the active desktop user to create Solaar input events
+  ansible.builtin.copy:
+    src: solaar-uinput.rules
+    dest: /etc/udev/rules.d/42-deburner-solaar-uinput.rules
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload udev after installing the Solaar uinput rule
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - control
+      - --reload
+  changed_when: false
+
+- name: Load uinput for the current session
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - uinput
+  changed_when: false
+
+- name: Apply the Solaar access rule to uinput
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - trigger
+      - --action=add
+      - --subsystem-match=misc
+      - --sysname-match=uinput
+  changed_when: false
+
 - name: Add the desktop user to the sudo group
   ansible.builtin.user:
     name: "{{ customization_effective_user }}"
