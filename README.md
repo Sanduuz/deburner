@@ -464,6 +464,18 @@ directly from the scripts shipped by Debian's `fzf` package. Its
 `fzf-preview.sh` helper is installed in `~/bin`.
 Debian's default login profile adds that directory to `PATH` after the next login.
 
+The role installs Debian's Solaar package and its udev access rules for Logitech
+devices. Solaar starts hidden through its system-wide GNOME autostart entry after
+the next login. The managed user configuration carries over the MX Master 3S
+button diversion, DPI, scrolling and SmartShift settings plus the gesture rules
+for Pause, maximum/minimum display brightness and the notification gesture.
+`brightnessctl` and `notify-send` are installed for those actions. To start
+Solaar in the current graphical session without logging out, run:
+
+```sh
+solaar --window=hide
+```
+
 The managed Zed settings enable Vim mode, use the Sublime Text keymap and a dark
 Gruvbox theme, disable AI features and telemetry, and configure the requested
 panels, language behavior, and compiler integrations. Rust Analyzer comes from
@@ -1264,7 +1276,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Android tooling | Install Android device, APK inspection, signing, decompilation and instrumentation clients; optionally install current Android Studio, SDK, emulator, an unrooted newest-stable AVD, and a rootAVD/Magisk-patched Android 14 AVD | Support static and dynamic Android challenge analysis while keeping the large development and emulation profile configuration-gated |
 | Web tooling | Install current ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial and Burp Suite Community releases without configuring an account or license | Cover web fuzzing, discovery, injection, TLS, token and Java deserialization work through system-wide commands and an interactive proxy |
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
-| Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, a fresh unencrypted Ed25519 identity, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults and a burner-only SSH identity |
+| Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, Solaar and MX Master 3S gesture mappings, a fresh unencrypted Ed25519 identity, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults, Logitech controls and a burner-only SSH identity |
 | Screen sharing | Optionally rebuild Debian's GNOME Remote Desktop package with LibVNCServer support, configure password-authenticated VNC for the active GNOME Wayland session, and default to view-only access | Provide standard VNC/RFB screen viewing without switching GNOME to Xorg; explicitly opens the selected host port and requires a trusted LAN or VPN |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; automatically prepare `deburner-apt-mode` while leaving the initial online mode selected | Permit Debian package installation after disconnecting without exposing a mirror service or changing modes without an explicit operator command |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |

@@ -7,13 +7,16 @@ customization_zed_rust_analyzer_path: /usr/local/bin/rust-analyzer
 customization_packages:
   - bat
   - bind9-dnsutils
+  - brightnessctl
   - dconf-cli
   - fd-find
   - file
   - fzf
   - gnome-terminal
+  - libnotify-bin
   - openssh-client
   - ripgrep
+  - solaar
   - sudo
   - tree
   - vim

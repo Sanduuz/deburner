@@ -161,6 +161,8 @@ def verify_customization() -> None:
     file_exists("/home/debian/.vim/colors/monokai.vim")
     file_exists("/home/debian/.bash_aliases")
     file_exists("/home/debian/bin/fzf-preview.sh", executable=True)
+    file_exists("/home/debian/.config/solaar/config.yaml")
+    file_exists("/home/debian/.config/solaar/rules.yaml")
     file_exists("/home/debian/.config/zed/settings.json")
     file_exists("/home/debian/.ssh/config")
     file_exists("/home/debian/.ssh/id_ed25519")
@@ -304,6 +306,7 @@ def verify_tooling() -> None:
         "sliver-client",
         "sliver-server",
         "sonic-visualiser",
+        "solaar",
         "sox",
         "sqlmap",
         "sshuttle",
@@ -353,6 +356,8 @@ def verify_tooling() -> None:
     file_exists("/opt/testssl.sh/testssl.sh")
     file_exists("/opt/ysoserial/ysoserial-all.jar")
     file_exists("/usr/share/seclists/README.md")
+    file_exists("/etc/xdg/autostart/solaar.desktop")
+    file_exists("/usr/lib/udev/rules.d/60-solaar.rules")
     firefox_policy_path = Path("/etc/firefox/policies/policies.json")
     firefox_extension_path = Path(
         "/usr/local/share/deburner/firefox-extensions/multi-account-containers.xpi"

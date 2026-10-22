@@ -1,0 +1,29 @@
+---
+- 1.1.14-4
+- _NAME: MX Master 3S
+  _modelId: B03400000000
+  _serial: 301B88E1
+  _unitId: 301B88E1
+  _wpid: B034
+  divert-keys:
+    82: 0
+    83: 0
+    86: 0
+    195: 2
+    196: 0
+  dpi: 1000
+  hires-scroll-mode: false
+  hires-smooth-invert: false
+  hires-smooth-resolution: false
+  reprogrammable-keys:
+    80: 80
+    81: 81
+    82: 82
+    83: 83
+    86: 86
+    195: 195
+    196: 196
+  scroll-ratchet: 2
+  smart-shift: 42
+  thumb-scroll-invert: true
+  thumb-scroll-mode: false

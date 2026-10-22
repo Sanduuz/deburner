@@ -102,6 +102,7 @@ verification_required_commands:
   - sliver-client
   - sliver-server
   - sonic-visualiser
+  - solaar
   - sox
   - sqlmap
   - sshuttle
@@ -137,6 +138,7 @@ verification_required_system_files:
   - /etc/docker/daemon.json
   - /etc/gdb/gdbinit.d/peda.gdb
   - /etc/firefox/policies/policies.json
+  - /etc/xdg/autostart/solaar.desktop
   - /etc/sudoers.d/deburner-desktop-user
   - /etc/systemd/logind.conf.d/90-deburner-lid-switch.conf
   - /etc/systemd/system/deburner-firewall.service
@@ -164,11 +166,14 @@ verification_required_system_files:
   - /usr/local/sbin/deburner-provision-manifest
   - /usr/share/doc/fzf/examples/completion.bash
   - /usr/share/doc/fzf/examples/key-bindings.bash
+  - /usr/lib/udev/rules.d/60-solaar.rules
   - /var/lib/deburner/provision-manifest.json
   - /srv/tuoni/tuoni
 
 verification_required_user_files:
   - .bash_aliases
+  - .config/solaar/config.yaml
+  - .config/solaar/rules.yaml
   - .config/zed/settings.json
   - .ssh/config
   - .ssh/id_ed25519

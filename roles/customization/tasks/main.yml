@@ -254,6 +254,29 @@
     group: "{{ customization_effective_group }}"
     mode: '0600'
 
+- name: Create the Solaar configuration directory
+  ansible.builtin.file:
+    path: "{{ customization_effective_home }}/.config/solaar"
+    state: directory
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0700'
+
+- name: Install the Solaar device settings and gesture rules
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ customization_effective_home }}/.config/solaar/{{ item.destination }}"
+    owner: "{{ customization_effective_user }}"
+    group: "{{ customization_effective_group }}"
+    mode: '0600'
+  loop:
+    - source: solaar-config.yaml
+      destination: config.yaml
+    - source: solaar-rules.yaml
+      destination: rules.yaml
+  loop_control:
+    label: "{{ item.destination }}"
+
 - name: Create the SSH configuration directory
   ansible.builtin.file:
     path: "{{ customization_effective_home }}/.ssh"

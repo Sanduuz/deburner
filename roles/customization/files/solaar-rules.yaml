@@ -1,0 +1,20 @@
+---
+- Rule:
+    - MouseGesture: Mouse Gesture Button
+    - KeyPress: Pause
+...
+---
+- Rule:
+    - MouseGesture: [Mouse Gesture Button, Mouse Up]
+    - Execute: [brightnessctl, set, 100%]
+...
+---
+- Rule:
+    - MouseGesture: [Mouse Gesture Button, Mouse Down]
+    - Execute: [brightnessctl, set, 0%]
+...
+---
+- Rule:
+    - MouseGesture: [Mouse Gesture Button, Mouse Down, Mouse Right, Mouse Up, Mouse Left]
+    - Execute: [notify-send, Sanduuz, Nice easter egg!]
+...
