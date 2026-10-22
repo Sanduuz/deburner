@@ -469,8 +469,9 @@ devices. Solaar starts hidden through its system-wide GNOME autostart entry afte
 the next login. The managed user configuration carries over the MX Master 3S
 button diversion, DPI, scrolling and SmartShift settings plus the gesture rules
 for Pause, maximum/minimum display brightness and the notification gesture.
-`brightnessctl` and `notify-send` are installed for those actions. To start
-Solaar in the current graphical session without logging out, run:
+GNOME Shell maps the synthetic `Pause` key from a thumb-button press to Activities
+Overview. `brightnessctl` and `notify-send` are installed for the other actions.
+To start Solaar in the current graphical session without logging out, run:
 
 ```sh
 solaar --window=hide

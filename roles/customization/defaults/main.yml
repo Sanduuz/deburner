@@ -24,6 +24,9 @@ customization_packages:
 
 # Values use GVariant syntax accepted by gsettings.
 customization_gnome_settings:
+  - schema: org.gnome.shell.keybindings
+    key: toggle-overview
+    value: "['Pause']"
   - schema: org.gnome.desktop.wm.preferences
     key: focus-mode
     value: "'click'"
