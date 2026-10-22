@@ -69,10 +69,13 @@ customization_user: ''
 
 # Optional VNC sharing of the active GNOME Wayland session. Debian builds GNOME
 # Remote Desktop without VNC, so enabling this rebuilds its current Debian source
-# package with LibVNCServer support. Explicitly add the same TCP port to
+# package with LibVNCServer support. A reflector accepts multiple clients on the
+# public VNC port and maintains GRD's single connection on a firewall-private
+# backend port. Explicitly add only the public port to
 # hardening_allowed_tcp_ports after reviewing the event network exposure.
 screen_sharing_enabled: false
 screen_sharing_vnc_port: 5900
+screen_sharing_backend_port: 5901
 screen_sharing_view_only: true
 screen_sharing_build_timeout: 3600
 

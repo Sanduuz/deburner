@@ -9,6 +9,10 @@
       - screen_sharing_vnc_port is integer
       - screen_sharing_vnc_port >= 1
       - screen_sharing_vnc_port <= 65535
+      - screen_sharing_backend_port is integer
+      - screen_sharing_backend_port >= 1
+      - screen_sharing_backend_port <= 65535
+      - screen_sharing_backend_port != screen_sharing_vnc_port
       - screen_sharing_view_only | type_debug == 'bool'
       - screen_sharing_build_timeout is integer
       - screen_sharing_build_timeout >= 600
@@ -16,6 +20,11 @@
       - screen_sharing_build_root == '/var/cache/deburner-build/gnome-remote-desktop'
       - screen_sharing_artifact_root == '/var/cache/deburner/gnome-remote-desktop-vnc'
       - screen_sharing_local_version_suffix is match('^\+deburner[0-9]+$')
+      - screen_sharing_runtime_packages | type_debug == 'list'
+      - screen_sharing_runtime_packages | length > 0
+      - screen_sharing_runtime_packages
+        | select('match', '^[a-z0-9][a-z0-9+.-]*$') | list | length
+        == screen_sharing_runtime_packages | length
       - screen_sharing_build_packages | type_debug == 'list'
       - screen_sharing_build_packages | length > 0
       - screen_sharing_build_packages
@@ -38,10 +47,12 @@
       ansible.builtin.assert:
         that:
           - screen_sharing_vnc_port in hardening_allowed_tcp_ports
+          - screen_sharing_backend_port not in hardening_allowed_tcp_ports
         fail_msg: >-
-          VNC is enabled on TCP port {{ screen_sharing_vnc_port }}, but that port
-          is absent from hardening_allowed_tcp_ports. Add it explicitly and
-          review the event network exposure before provisioning.
+          VNC needs public TCP port {{ screen_sharing_vnc_port }} in
+          hardening_allowed_tcp_ports while backend port
+          {{ screen_sharing_backend_port }} remains absent. Review the event
+          network exposure before provisioning.
 
     - name: Resolve the GNOME desktop user
       ansible.builtin.command:
@@ -85,6 +96,30 @@
           VNC credentials must be stored in the logged-in user's GNOME keyring.
           Log in to GNOME as {{ screen_sharing_user }} and rerun the playbook from
           that desktop session.
+
+    - name: Install the VNC reflector
+      ansible.builtin.apt:
+        name: "{{ screen_sharing_runtime_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Stop the existing VNC reflector before reconfiguration
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - stop
+          - deburner-vnc-reflector.service
+      environment: &screen_sharing_session_environment
+        HOME: "{{ screen_sharing_home }}"
+        XDG_RUNTIME_DIR: "{{ screen_sharing_runtime_dir }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path={{ screen_sharing_runtime_dir }}/bus"
+      register: screen_sharing_reflector_stop
+      changed_when: screen_sharing_reflector_stop.rc == 0
+      failed_when: false
 
     - name: Check whether grdctl already includes the VNC backend
       ansible.builtin.command:
@@ -427,11 +462,8 @@
           - grdctl
           - vnc
           - set-port
-          - "{{ screen_sharing_vnc_port }}"
-      environment: &screen_sharing_session_environment
-        HOME: "{{ screen_sharing_home }}"
-        XDG_RUNTIME_DIR: "{{ screen_sharing_runtime_dir }}"
-        DBUS_SESSION_BUS_ADDRESS: "unix:path={{ screen_sharing_runtime_dir }}/bus"
+          - "{{ screen_sharing_backend_port }}"
+      environment: *screen_sharing_session_environment
       changed_when: false
 
     - name: Configure password authentication
@@ -458,6 +490,40 @@
       environment: *screen_sharing_session_environment
       changed_when: false
       no_log: true
+
+    - name: Create the private reflector configuration directory
+      ansible.builtin.file:
+        path: "{{ screen_sharing_home }}/.config/deburner"
+        state: directory
+        owner: "{{ screen_sharing_user }}"
+        group: "{{ screen_sharing_passwd.stdout.split(':')[3] }}"
+        mode: '0700'
+
+    - name: Store the reflector password for its upstream and clients
+      ansible.builtin.copy:
+        dest: "{{ screen_sharing_home }}/.config/deburner/vnc-reflector-password"
+        content: "{{ screen_sharing_password_file_content.content | b64decode | trim }}\n"
+        owner: "{{ screen_sharing_user }}"
+        group: "{{ screen_sharing_passwd.stdout.split(':')[3] }}"
+        mode: '0600'
+      no_log: true
+
+    - name: Create the user service directory
+      ansible.builtin.file:
+        path: "{{ screen_sharing_home }}/.config/systemd/user"
+        state: directory
+        owner: "{{ screen_sharing_user }}"
+        group: "{{ screen_sharing_passwd.stdout.split(':')[3] }}"
+        mode: '0755'
+
+    - name: Install the VNC reflector user service
+      ansible.builtin.template:
+        src: deburner-vnc-reflector.service.j2
+        dest: >-
+          {{ screen_sharing_home }}/.config/systemd/user/deburner-vnc-reflector.service
+        owner: "{{ screen_sharing_user }}"
+        group: "{{ screen_sharing_passwd.stdout.split(':')[3] }}"
+        mode: '0644'
 
     - name: Configure VNC input access
       become: true
@@ -492,12 +558,23 @@
       environment: *screen_sharing_session_environment
       changed_when: false
 
-    - name: Enable and start GNOME Remote Desktop for the user session
+    - name: Restart GNOME Remote Desktop on the private backend port
       become: true
       become_user: "{{ screen_sharing_user }}"
       ansible.builtin.systemd_service:
         name: gnome-remote-desktop.service
         scope: user
+        enabled: true
+        state: restarted
+      environment: *screen_sharing_session_environment
+
+    - name: Enable and start the VNC reflector for the user session
+      become: true
+      become_user: "{{ screen_sharing_user }}"
+      ansible.builtin.systemd_service:
+        name: deburner-vnc-reflector.service
+        scope: user
+        daemon_reload: true
         enabled: true
         state: started
       environment: *screen_sharing_session_environment
@@ -518,7 +595,7 @@
         that:
           - "'VNC:' in screen_sharing_status.stdout"
           - "'Status: enabled' in screen_sharing_status.stdout"
-          - "('Port: ' ~ screen_sharing_vnc_port) in screen_sharing_status.stdout"
+          - "('Port: ' ~ screen_sharing_backend_port) in screen_sharing_status.stdout"
           - "'Auth method: password' in screen_sharing_status.stdout"
           - >-
             ('View-only: ' ~ ('yes' if screen_sharing_view_only else 'no'))
@@ -527,35 +604,46 @@
           - "'Password: (hidden)' in screen_sharing_status.stdout"
         fail_msg: grdctl did not report the requested VNC screen-sharing configuration.
 
-    - name: Read the configured VNC listening socket
+    - name: Read the configured VNC listening sockets
       ansible.builtin.command:
         argv:
           - ss
           - --listening
           - --tcp
           - --numeric
-          - "sport = :{{ screen_sharing_vnc_port }}"
-      register: screen_sharing_listener
+          - "sport = :{{ item.port }}"
+      loop:
+        - name: public reflector
+          port: "{{ screen_sharing_vnc_port }}"
+        - name: GNOME Remote Desktop backend
+          port: "{{ screen_sharing_backend_port }}"
+      loop_control:
+        label: "{{ item.name }} TCP port {{ item.port }}"
+      register: screen_sharing_listeners
       changed_when: false
-      until: screen_sharing_listener.stdout_lines | length > 1
-      retries: 10
+      until: screen_sharing_listeners.stdout_lines | length > 1
+      retries: 30
       delay: 1
 
-    - name: Require the VNC listener
+    - name: Require the public reflector and private backend listeners
       ansible.builtin.assert:
         that:
-          - screen_sharing_listener.stdout_lines | length > 1
+          - item.stdout_lines | length > 1
         fail_msg: >-
-          GNOME Remote Desktop is not listening on TCP port
-          {{ screen_sharing_vnc_port }}. Check the user service and journal.
+          {{ item.item.name }} is not listening on TCP port
+          {{ item.item.port }}. Check both user services and their journals.
+      loop: "{{ screen_sharing_listeners.results }}"
+      loop_control:
+        label: "{{ item.item.name }} TCP port {{ item.item.port }}"
 
     - name: Report the VNC connection details
       ansible.builtin.debug:
         msg: >-
-          GNOME Wayland VNC screen sharing is enabled on TCP port
-          {{ screen_sharing_vnc_port }} for the active {{ screen_sharing_user }}
-          session using GNOME Remote Desktop
-          {{ screen_sharing_installed_version.stdout | trim }}. Read the generated password with
+          GNOME Wayland VNC screen sharing is enabled through the multi-client
+          reflector on public TCP port {{ screen_sharing_vnc_port }}. It uses
+          GNOME Remote Desktop {{ screen_sharing_installed_version.stdout | trim }}
+          on firewall-private backend port {{ screen_sharing_backend_port }} for
+          the active {{ screen_sharing_user }} session. Read the generated password with
           'sudo cat {{ screen_sharing_password_file }}'. From the active GNOME
           user's terminal, use 'grdctl vnc disable-view-only' to allow remote
           input temporarily and 'grdctl vnc enable-view-only' to restore

@@ -1,12 +1,18 @@
 ---
 screen_sharing_enabled: false
+# Public x11vnc reflector port used by teammates.
 screen_sharing_vnc_port: 5900
+# Firewall-private GNOME Remote Desktop port consumed by the reflector.
+screen_sharing_backend_port: 5901
 screen_sharing_view_only: true
 screen_sharing_build_timeout: 3600
 screen_sharing_password_file: /var/lib/deburner/vnc-password
 screen_sharing_build_root: /var/cache/deburner-build/gnome-remote-desktop
 screen_sharing_artifact_root: /var/cache/deburner/gnome-remote-desktop-vnc
 screen_sharing_local_version_suffix: +deburner1
+
+screen_sharing_runtime_packages:
+  - x11vnc
 
 screen_sharing_build_packages:
   - build-essential

@@ -41,6 +41,7 @@ CASES = (
             "offline_mirror_enabled": True,
             "screen_sharing_enabled": True,
             "screen_sharing_vnc_port": 5900,
+            "screen_sharing_backend_port": 5901,
             "offline_mirror_root": "/srv/deburner/test-mirror",
             "tooling_core_packages": ["curl", "git"],
         },
@@ -51,7 +52,18 @@ CASES = (
         name="VNC port missing from firewall",
         values={"screen_sharing_enabled": True},
         succeeds=False,
-        marker="VNC screen sharing needs a valid TCP port",
+        marker="VNC screen sharing needs distinct valid public and backend ports",
+    ),
+    ConfigCase(
+        name="VNC backend port exposed by firewall",
+        values={
+            "screen_sharing_enabled": True,
+            "screen_sharing_vnc_port": 5900,
+            "screen_sharing_backend_port": 5901,
+            "hardening_allowed_tcp_ports": [5900, 5901],
+        },
+        succeeds=False,
+        marker="VNC screen sharing needs distinct valid public and backend ports",
     ),
     ConfigCase(
         name="unknown variable",

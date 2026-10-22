@@ -1062,12 +1062,15 @@ access.
 ### Optional GNOME Wayland VNC screen sharing
 
 Screen sharing is disabled by default. It shares the active GNOME Wayland
-desktop through standard VNC/RFB and defaults to view-only access. Enable it in
-`local.yml` and explicitly open the same port in the host firewall:
+desktop through standard VNC/RFB, accepts multiple simultaneous viewers and
+defaults to view-only access. Enable it in `local.yml`, keep the GRD backend on
+a distinct firewall-private port, and explicitly open only the public reflector
+port:
 
 ```yaml
 screen_sharing_enabled: true
 screen_sharing_vnc_port: 5900
+screen_sharing_backend_port: 5901
 screen_sharing_view_only: true
 hardening_allowed_tcp_ports: [5900]
 ```
@@ -1076,6 +1079,16 @@ Run the normal `make` provisioning command while logged in to GNOME as the
 selected `customization_user`. The preflight refuses the profile when that user
 does not have an active session bus. To configure it separately after the rest
 of the machine is provisioned, log in to GNOME and run `make screen-sharing`.
+On an existing burner that already has the original single-client VNC setup,
+pull the update and apply only this role from a local terminal:
+
+```sh
+git pull
+make screen-sharing
+```
+
+This restarts the VNC services and disconnects any current viewer while moving
+GNOME Remote Desktop to the private backend port.
 
 Debian 13 builds `gnome-remote-desktop` without its upstream VNC backend. The
 role downloads the current Debian source package, adds `libvncserver-dev`,
@@ -1090,11 +1103,23 @@ commands, package state, user service and listening socket afterward. This keeps
 the local delta visible in package state and lets `grdctl vnc` configure GNOME's
 native Remote Desktop service.
 
+GNOME Remote Desktop 48 accepts only one VNC connection at a time. The role
+therefore installs `x11vnc` in reflector mode. The reflector consumes GRD's
+single connection on `screen_sharing_backend_port` and republishes it on
+`screen_sharing_vnc_port` with shared-client behavior forced on. In reflector
+mode, `x11vnc` only exchanges VNC traffic and does not access an X11 display, so
+the captured desktop remains the native GNOME Wayland session. The nftables
+configuration accepts the public port and drops new non-loopback connections to
+the backend because that port is deliberately absent from
+`hardening_allowed_tcp_ports`.
+
 The role generates an eight-character password, which is the maximum effective
 length for the classic VNC authentication used by this LibVNCServer backend,
 and stores the operator copy as root-only data. Generating a longer displayed
 password would be misleading because only its first eight characters would
-participate in authentication. Read the password with:
+participate in authentication. The same credential authenticates the
+reflector's connection to GRD and teammates' connections to the reflector. Read
+the password with:
 
 ```sh
 sudo cat /var/lib/deburner/vnc-password
@@ -1123,6 +1148,11 @@ Run these commands as the logged-in desktop user, without `sudo`, so `grdctl`
 can access that user's session bus and keyring. A later Ansible run reapplies
 `screen_sharing_view_only`; change it in `local.yml` and run
 `make screen-sharing` when remote input should remain enabled.
+
+When manually replacing `/var/lib/deburner/vnc-password`, run
+`make screen-sharing` afterward. The role copies the changed credential into the
+desktop user's private reflector configuration, updates the GNOME keyring and
+restarts both VNC services.
 
 VNC traffic is not encrypted. The managed firewall exception accepts the port
 on every interface from any IPv4 or IPv6 source, so use this only on a trusted
@@ -1281,7 +1311,7 @@ python3 -m json.tool /var/lib/deburner/provision-manifest.json | less
 | Web tooling | Install current ffuf, Gobuster, sqlmap, Nikto, testssl.sh, jwt_tool, ysoserial and Burp Suite Community releases without configuring an account or license | Cover web fuzzing, discovery, injection, TLS, token and Java deserialization work through system-wide commands and an interactive proxy |
 | Wordlists | Install the latest stable SecLists release under `/opt` with a conventional `/usr/share/seclists` path | Provide discovery, fuzzing, password, payload and web-shell lists on every burner |
 | Customization | Configure the primary user for passwordless sudo, GNOME and power behavior, Vim, Bash history and aliases, fzf integration, Zed settings, Solaar and MX Master 3S gesture mappings, a fresh unencrypted Ed25519 identity, and SSH client multiplexing | Keep the disposable workstation awake and ready for event use while applying the requested interactive defaults, Logitech controls and a burner-only SSH identity |
-| Screen sharing | Optionally rebuild Debian's GNOME Remote Desktop package with LibVNCServer support, configure password-authenticated VNC for the active GNOME Wayland session, and default to view-only access | Provide standard VNC/RFB screen viewing without switching GNOME to Xorg; explicitly opens the selected host port and requires a trusted LAN or VPN |
+| Screen sharing | Optionally rebuild Debian's GNOME Remote Desktop package with LibVNCServer support, place a shared-client x11vnc reflector in front of its single-client backend, configure password authentication for the active GNOME Wayland session, and default to view-only access | Provide simultaneous standard VNC/RFB viewers without switching GNOME to Xorg; explicitly opens only the public reflector port and requires a trusted LAN or VPN |
 | Offline mirror | Optionally synchronize signed Debian 13 amd64 and architecture-independent packages under `/srv/deburner/mirror`; automatically prepare `deburner-apt-mode` while leaving the initial online mode selected | Permit Debian package installation after disconnecting without exposing a mirror service or changing modes without an explicit operator command |
 | Provisioning manifest | Record platform details, installed Debian package versions, `/opt` entries, local commands, Rust toolchains, Docker image identities and the available repository revision in `/var/lib/deburner/provision-manifest.json` | Preserve a reviewable inventory of the disposable installation without collecting configuration contents, credentials or user identity |
 | Orchestration | Add `deburner.yml`, logged Makefile operator targets and automatic `local.yml` loading | Stream and retain output while running the standard hardening, tooling, Docker, C2, configuration-gated BloodHound and mirror stages, inventory generation, preflight and verification workflows |

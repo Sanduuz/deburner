@@ -1,0 +1,14 @@
+[Unit]
+Description=Deburner multi-client VNC reflector
+Requires=gnome-remote-desktop.service
+After=gnome-remote-desktop.service
+PartOf=gnome-remote-desktop.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/x11vnc -norc -env X11VNC_REFLECT_PASSWORD=file:{{ screen_sharing_home }}/.config/deburner/vnc-reflector-password -reflect localhost:{{ screen_sharing_backend_port }} -rfbport {{ screen_sharing_vnc_port }} -passwdfile {{ screen_sharing_home }}/.config/deburner/vnc-reflector-password -shared -alwaysshared -forever -safer
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=default.target

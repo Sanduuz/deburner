@@ -86,9 +86,12 @@
     verification_screen_sharing_enabled: >-
       {{ screen_sharing_enabled
          | default(verification_screen_sharing_defaults.screen_sharing_enabled) }}
-    verification_screen_sharing_port: >-
+    verification_screen_sharing_public_port: >-
       {{ screen_sharing_vnc_port
          | default(verification_screen_sharing_defaults.screen_sharing_vnc_port) }}
+    verification_screen_sharing_backend_port: >-
+      {{ screen_sharing_backend_port
+         | default(verification_screen_sharing_defaults.screen_sharing_backend_port) }}
     verification_screen_sharing_view_only: >-
       {{ screen_sharing_view_only
          | default(verification_screen_sharing_defaults.screen_sharing_view_only) }}
@@ -97,6 +100,10 @@
          | default(verification_screen_sharing_defaults.screen_sharing_password_file) }}
     verification_screen_sharing_runtime_dir: >-
       /run/user/{{ verification_passwd.stdout.split(':')[2] }}
+    verification_screen_sharing_reflector_password_file: >-
+      {{ verification_passwd.stdout.split(':')[5] }}/.config/deburner/vnc-reflector-password
+    verification_screen_sharing_reflector_service_file: >-
+      {{ verification_passwd.stdout.split(':')[5] }}/.config/systemd/user/deburner-vnc-reflector.service
 
 - name: Read required service states
   ansible.builtin.command:
@@ -897,10 +904,39 @@
     fail_msg: The managed VNC password file is missing or has unsafe permissions.
   when: verification_screen_sharing_enabled | bool
 
+- name: Inspect the VNC reflector files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ verification_screen_sharing_reflector_password_file }}"
+    - "{{ verification_screen_sharing_reflector_service_file }}"
+  register: verification_screen_sharing_reflector_files
+  when: verification_screen_sharing_enabled | bool
+
+- name: Require restricted VNC reflector files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.pw_name == verification_user
+      - item.stat.mode == ('0600' if item.item == verification_screen_sharing_reflector_password_file else '0644')
+    fail_msg: "{{ item.item }} is missing or has unexpected ownership or permissions."
+  loop: "{{ verification_screen_sharing_reflector_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: verification_screen_sharing_enabled | bool
+
 - name: Read the managed VNC password for validation
   ansible.builtin.slurp:
     src: "{{ verification_screen_sharing_password_file }}"
   register: verification_screen_sharing_password
+  no_log: true
+  when: verification_screen_sharing_enabled | bool
+
+- name: Read the VNC reflector password for validation
+  ansible.builtin.slurp:
+    src: "{{ verification_screen_sharing_reflector_password_file }}"
+  register: verification_screen_sharing_reflector_password
   no_log: true
   when: verification_screen_sharing_enabled | bool
 
@@ -910,7 +946,12 @@
       - >-
         verification_screen_sharing_password.content | b64decode | trim
         is match('^[A-Za-z0-9]{8}$')
-    fail_msg: The managed VNC password must contain exactly eight safe characters.
+      - >-
+        verification_screen_sharing_password.content | b64decode | trim
+        == verification_screen_sharing_reflector_password.content | b64decode | trim
+    fail_msg: >-
+      The managed VNC password must contain exactly eight safe characters and
+      match the reflector credential.
   no_log: true
   when: verification_screen_sharing_enabled | bool
 
@@ -950,7 +991,7 @@
       - "'VNC:' in verification_screen_sharing_status.stdout"
       - "'Status: enabled' in verification_screen_sharing_status.stdout"
       - >-
-        ('Port: ' ~ verification_screen_sharing_port)
+        ('Port: ' ~ verification_screen_sharing_backend_port)
         in verification_screen_sharing_status.stdout
       - "'Auth method: password' in verification_screen_sharing_status.stdout"
       - >-
@@ -961,7 +1002,7 @@
     fail_msg: GNOME Remote Desktop does not report the requested VNC configuration.
   when: verification_screen_sharing_enabled | bool
 
-- name: Read the GNOME Remote Desktop user-service state
+- name: Read the VNC user-service states
   become: true
   become_user: "{{ verification_user }}"
   ansible.builtin.command:
@@ -969,38 +1010,57 @@
       - systemctl
       - --user
       - is-active
-      - gnome-remote-desktop.service
+      - "{{ item }}"
+  loop:
+    - gnome-remote-desktop.service
+    - deburner-vnc-reflector.service
+  loop_control:
+    label: "{{ item }}"
   environment: *verification_screen_sharing_environment
-  register: verification_screen_sharing_service
+  register: verification_screen_sharing_services
   changed_when: false
   when: verification_screen_sharing_enabled | bool
 
-- name: Require the active GNOME Remote Desktop user service
+- name: Require active VNC user services
   ansible.builtin.assert:
     that:
-      - verification_screen_sharing_service.rc == 0
-      - verification_screen_sharing_service.stdout | trim == 'active'
-    fail_msg: GNOME Remote Desktop is not active in the desktop user session.
+      - item.rc == 0
+      - item.stdout | trim == 'active'
+    fail_msg: "{{ item.item }} is not active in the desktop user session."
+  loop: "{{ verification_screen_sharing_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
   when: verification_screen_sharing_enabled | bool
 
-- name: Read listening TCP sockets for the VNC port
+- name: Read listening TCP sockets for the VNC ports
   ansible.builtin.command:
     argv:
       - ss
       - --listening
       - --tcp
       - --numeric
-      - "sport = :{{ verification_screen_sharing_port }}"
-  register: verification_screen_sharing_listener
+      - "sport = :{{ item.port }}"
+  loop:
+    - name: public reflector
+      port: "{{ verification_screen_sharing_public_port }}"
+    - name: GNOME Remote Desktop backend
+      port: "{{ verification_screen_sharing_backend_port }}"
+  loop_control:
+    label: "{{ item.name }} TCP port {{ item.port }}"
+  register: verification_screen_sharing_listeners
   changed_when: false
   when: verification_screen_sharing_enabled | bool
 
-- name: Require a VNC listener
+- name: Require the public reflector and private backend listeners
   ansible.builtin.assert:
     that:
-      - verification_screen_sharing_listener.stdout_lines | length > 1
+      - item.stdout_lines | length > 1
     fail_msg: >-
-      No process is listening on VNC TCP port {{ verification_screen_sharing_port }}.
+      No process is listening for {{ item.item.name }} on TCP port
+      {{ item.item.port }}.
+  loop: "{{ verification_screen_sharing_listeners.results }}"
+  loop_control:
+    label: "{{ item.item.name }} TCP port {{ item.item.port }}"
   when: verification_screen_sharing_enabled | bool
 
 - name: Report successful verification

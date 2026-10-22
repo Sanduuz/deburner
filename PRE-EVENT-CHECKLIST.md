@@ -81,10 +81,11 @@ traffic or files.
 - [ ] If Android Studio is enabled, review the Android SDK license and set
       `tooling_mobile_android_licenses_accepted: true` only after accepting it.
 - [ ] If VNC screen sharing is enabled, add `screen_sharing_vnc_port` to
-      `hardening_allowed_tcp_ports`, use a trusted event LAN or VPN, and log in
-      to GNOME as the selected desktop user before running preflight or
-      provisioning. Keep `screen_sharing_view_only: true` unless remote input is
-      deliberately required.
+      `hardening_allowed_tcp_ports`, keep `screen_sharing_backend_port` absent
+      from that list, use a trusted event LAN or VPN, and log in to GNOME as the
+      selected desktop user before running preflight or provisioning. Keep
+      `screen_sharing_view_only: true` unless remote input is deliberately
+      required.
 - [ ] If the offline mirror is enabled, review its storage path and whether
       source packages or package-content indexes are needed. The default mirror
       stores Debian 13 amd64 and architecture-independent binary packages below
@@ -143,8 +144,8 @@ filesystem containing `/srv` has more than 400 GB of capacity and more than
       than locked.
 - [ ] If VNC is enabled, read its password with
       `sudo cat /var/lib/deburner/vnc-password`, connect from the intended VNC
-      client, confirm view-only or input behavior, and confirm that locking the
-      GNOME session ends access.
+      clients, confirm at least two can view simultaneously, confirm view-only
+      or input behavior, and confirm that locking the GNOME session ends access.
 - [ ] If remote input is temporarily required, run
       `grdctl vnc disable-view-only` as the logged-in GNOME user. Restore the
       safer default afterward with `grdctl vnc enable-view-only`.
@@ -204,7 +205,8 @@ APT can later be switched between the two source sets with
 - [ ] Confirm Bluetooth is disabled unless the event requires it. Start it for
       the current boot with `sudo systemctl start bluetooth.service` if needed.
 - [ ] If VNC is enabled, confirm its selected port is reachable only through the
-      trusted event LAN or VPN and is not exposed to the public Internet.
+      trusted event LAN or VPN, its backend port is unreachable remotely, and
+      neither is exposed to the public Internet.
 - [ ] Start no C2 framework, Responder, BloodHound container, packet capture,
       wireless monitor mode, or listener until the authorized exercise requires
       it.
